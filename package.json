@@ -1,0 +1,16 @@
+{
+  "name": "videoai",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.18.0",
+  "scripts": {
+    "build": "pnpm --recursive build",
+    "check": "pnpm --recursive check",
+    "dev:webapp": "pnpm --filter @videoai/webapp dev",
+    "dev:api": "pnpm --filter @videoai/api dev",
+    "seed:devassets": "pnpm --filter @videoai/seed seed:devassets"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

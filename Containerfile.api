@@ -1,0 +1,22 @@
+FROM docker.io/library/node:26-bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --global pnpm@11.18.0
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY services/api/package.json services/api/package.json
+COPY services/webapp/package.json services/webapp/package.json
+COPY tools/seed/package.json tools/seed/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY services/api services/api
+COPY tools/seed tools/seed
+
+EXPOSE 8080
+
+CMD ["pnpm", "--filter", "@videoai/api", "dev"]

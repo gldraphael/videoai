@@ -1,0 +1,6 @@
+# Source manifest for local prototype media.
+#
+# Later seed work will read this file, prepare the referenced sources under
+# ../var/devassets, generate derived artifacts under ../var/thumbnails, and
+# upsert searchable metadata into PostgreSQL.
+assets: []

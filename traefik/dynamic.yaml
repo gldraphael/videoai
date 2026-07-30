@@ -1,0 +1,35 @@
+http:
+  routers:
+    webapp:
+      entryPoints:
+        - web
+      rule: Host(`videoai.localhost`)
+      service: webapp
+
+    api:
+      entryPoints:
+        - web
+      rule: Host(`api.videoai.localhost`)
+      service: api
+
+    render:
+      entryPoints:
+        - web
+      rule: Host(`render.videoai.localhost`)
+      service: render
+
+  services:
+    webapp:
+      loadBalancer:
+        servers:
+          - url: http://webapp:5173
+
+    api:
+      loadBalancer:
+        servers:
+          - url: http://api:8080
+
+    render:
+      loadBalancer:
+        servers:
+          - url: http://render:8081

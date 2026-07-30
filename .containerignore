@@ -1,0 +1,14 @@
+.git
+.agents
+.codex
+node_modules
+**/node_modules
+.pnpm-store
+.pnpm-state
+.pnpm-home
+**/dist
+**/.vite
+var/devassets
+var/renders
+var/thumbnails
+.env

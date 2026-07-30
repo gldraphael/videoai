@@ -1,0 +1,10 @@
+packages:
+  - "services/webapp"
+  - "services/api"
+  - "tools/seed"
+confirmModulesPurge: false
+onlyBuiltDependencies:
+  - esbuild
+storeDir: .pnpm-store
+allowBuilds:
+  esbuild: true

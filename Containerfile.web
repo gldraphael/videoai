@@ -1,0 +1,17 @@
+FROM docker.io/library/node:26-bookworm-slim
+
+WORKDIR /app
+
+RUN npm install --global pnpm@11.18.0
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY services/webapp/package.json services/webapp/package.json
+COPY services/api/package.json services/api/package.json
+COPY tools/seed/package.json tools/seed/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY services/webapp services/webapp
+
+EXPOSE 5173
+
+CMD ["pnpm", "--filter", "@videoai/webapp", "dev"]

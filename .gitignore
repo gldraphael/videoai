@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.pnpm-state/
+.pnpm-home/
+
+# TypeScript and frontend build outputs
+dist/
+build/
+.vite/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Local generated media and runtime artifacts
+var/devassets/
+var/renders/
+var/thumbnails/
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/

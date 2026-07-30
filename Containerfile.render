@@ -1,0 +1,19 @@
+FROM docker.io/library/golang:1.26-bookworm AS build
+
+WORKDIR /src
+
+COPY services/render/go.mod ./
+COPY services/render/main.go ./
+RUN go build -o /out/videoai-render .
+
+FROM docker.io/library/debian:trixie-slim
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates curl ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /out/videoai-render /usr/local/bin/videoai-render
+
+EXPOSE 8081
+
+CMD ["videoai-render"]
