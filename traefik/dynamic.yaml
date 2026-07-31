@@ -12,6 +12,15 @@ http:
       rule: Host(`api.videoai.localhost`)
       service: api
 
+    api-on-webapp:
+      entryPoints:
+        - web
+      rule: Host(`videoai.localhost`) && PathPrefix(`/api`)
+      middlewares:
+        - strip-api-prefix
+      priority: 100
+      service: api
+
     render:
       entryPoints:
         - web
@@ -33,3 +42,9 @@ http:
       loadBalancer:
         servers:
           - url: http://render:8081
+
+  middlewares:
+    strip-api-prefix:
+      stripPrefix:
+        prefixes:
+          - /api

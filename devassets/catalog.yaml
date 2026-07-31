@@ -1,6 +1,8 @@
-# Source manifest for local prototype media.
-#
-# Later seed work will read this file, prepare the referenced sources under
-# ../var/devassets, generate derived artifacts under ../var/thumbnails, and
-# upsert searchable metadata into PostgreSQL.
-assets: []
+version: 1
+
+assets:
+  - id: sintel-1280-mirror2
+    title: Sintel
+    type: video
+    source:
+      url: http://peach.themazzone.com/durian/movies/sintel-1280-surround.mp4

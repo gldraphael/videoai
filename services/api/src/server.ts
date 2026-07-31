@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import { createDatabase } from "./db.js";
+import { readDevassetStatus } from "./devassets.js";
 import { readConfig } from "./config.js";
 
 const config = readConfig();
@@ -21,6 +22,13 @@ app.get("/health/db", async () => {
     schemaVersion: check.schemaVersion
   };
 });
+
+app.get("/devassets/status", async () =>
+  readDevassetStatus({
+    statusPath: config.devassetStatusPath,
+    libraryPath: config.devassetLibraryPath
+  })
+);
 
 async function shutdown() {
   await database.close();

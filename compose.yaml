@@ -124,21 +124,18 @@ services:
       retries: 20
 
   seed:
-    profiles:
-      - tools
     build:
       context: .
-      dockerfile: Containerfile.api
+      dockerfile: Containerfile.seed
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgres://videoai:videoai@postgres:5432/videoai}
       DEVASSETS_DIR: /data/devassets
       THUMBNAILS_DIR: /data/thumbnails
+      WHISPER_MODEL: /models/ggml-base.en.bin
+      WHISPER_LANGUAGE: auto
     volumes:
       - ./devassets:/app/devassets:ro,z
       - ./var/devassets:/data/devassets:z
       - ./var/thumbnails:/data/thumbnails:z
-    depends_on:
-      - postgres
     command: ["pnpm", "--filter", "@videoai/seed", "seed:devassets", "devassets/catalog.yaml"]
 
 volumes:

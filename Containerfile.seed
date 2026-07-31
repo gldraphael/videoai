@@ -1,0 +1,47 @@
+FROM docker.io/library/debian:bookworm-slim AS whisper-build
+
+ARG WHISPER_CPP_VERSION=v1.8.6
+ARG WHISPER_MODEL=base.en
+
+WORKDIR /src/whisper.cpp
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates cmake curl g++ make \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN curl --fail --location --silent --show-error \
+    "https://github.com/ggml-org/whisper.cpp/archive/refs/tags/${WHISPER_CPP_VERSION}.tar.gz" \
+    | tar --extract --gzip --strip-components=1 \
+  && cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF \
+  && cmake --build build --config Release --target whisper-cli --parallel \
+  && mkdir -p /models \
+  && ./models/download-ggml-model.sh "${WHISPER_MODEL}" /models
+
+FROM docker.io/library/node:26-bookworm-slim
+
+WORKDIR /app
+
+ENV WHISPER_MODEL=/models/ggml-base.en.bin
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends ca-certificates ffmpeg libgomp1 \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN npm install --global pnpm@11.18.0
+
+COPY --from=whisper-build /src/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli
+COPY --from=whisper-build /src/whisper.cpp/build/src/libwhisper.so* /usr/local/lib/
+COPY --from=whisper-build /src/whisper.cpp/build/ggml/src/libggml*.so* /usr/local/lib/
+COPY --from=whisper-build /models /models
+
+RUN ldconfig
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY services/api/package.json services/api/package.json
+COPY services/webapp/package.json services/webapp/package.json
+COPY tools/seed/package.json tools/seed/package.json
+RUN pnpm install --frozen-lockfile
+
+COPY tools/seed tools/seed
+
+CMD ["pnpm", "--filter", "@videoai/seed", "seed:devassets", "devassets/catalog.yaml"]
