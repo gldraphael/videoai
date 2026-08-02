@@ -6,3 +6,8 @@ assets:
     type: video
     source:
       url: http://peach.themazzone.com/durian/movies/sintel-1280-surround.mp4
+  - id: how-to-speak
+    title: How to Speak - Patrick Henry Winston
+    type: video
+    source:
+      url: https://archive.org/download/mithowtospeak/MIT_How_To_Speak_IAP_2018_300k.mp4

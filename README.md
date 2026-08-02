@@ -60,9 +60,9 @@ podman compose up --build
 
 The `seed` service runs during normal compose startup. On the first run it reads
 `devassets/catalog.yaml`, downloads the configured videos, probes metadata,
-extracts audio, generates thumbnails, runs `whisper-cli` for timestamped
-transcripts, writes `var/devassets/library.json`, and exits. The webapp shows a
-setup state until the API reports the generated library is ready.
+extracts audio, generates thumbnails, runs `whisper-cli` for word-timestamped
+SRT and JSON transcripts, writes `var/devassets/library.json`, and exits. The
+webapp shows a setup state until the API reports the generated library is ready.
 
 Expected local URLs:
 

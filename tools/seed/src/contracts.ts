@@ -29,12 +29,20 @@ export type ThumbnailReference = {
   height?: number;
 };
 
+export type TranscriptJsonReference = {
+  path: string;
+  format: "json";
+  schema: "whisper.cpp";
+};
+
 export type TranscriptReference = {
   path: string;
   format: "srt";
+  json: TranscriptJsonReference;
   generator: "whisper.cpp";
   model: string;
   language: string;
+  wordTimestamps: true;
 };
 
 export type MediaLibraryAsset = {

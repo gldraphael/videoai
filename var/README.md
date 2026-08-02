@@ -22,6 +22,7 @@ var/devassets/
         source.<ext>
         audio.wav
         transcript.srt
+        transcript.json
 
 var/thumbnails/
   <asset-id>-<asset-identity>.jpg
@@ -35,8 +36,8 @@ files do not exist.
 `var/devassets/library.json` is the compact media-library index. Each asset
 includes catalog metadata, source URL and generated source path, ffprobe media
 metadata, a thumbnail reference, an audio reference, and a transcript reference.
-Transcript payloads are stored in `transcript.srt`; they are not embedded in
-`library.json`.
+Transcript payloads are stored in `transcript.srt` and `transcript.json`; they
+are not embedded in `library.json`.
 
 To force regeneration, run the seed command with `--force`. To manually clean
 all generated devasset output, delete `var/devassets/` and `var/thumbnails/`

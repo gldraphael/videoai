@@ -4,7 +4,7 @@ Developers need a one-command local setup path that turns the tracked devasset
 catalog into a usable media library for the prototype. The current seed command
 is only a placeholder, so the web app cannot distinguish "still setting up"
 from "ready to use" and developers do not have generated media, thumbnails, or
-timestamped transcripts available locally.
+word-timestamped transcripts available locally.
 
 ## What Changes
 
@@ -23,9 +23,9 @@ timestamped transcripts available locally.
 - Generate local runtime artifacts under gitignored paths:
   `var/devassets/library.json`, per-asset source media/audio/transcript files
   under `var/devassets/assets/`, and thumbnails under `var/thumbnails/`.
-- Use `whisper.cpp` to generate timestamped transcript files and reference
-  those files from `library.json` instead of embedding full transcripts in the
-  library index.
+- Use `whisper.cpp` to generate word-timestamped SRT and JSON transcript files
+  and reference those files from `library.json` instead of embedding full
+  transcripts in the library index.
 - Make consecutive seed runs a no-op when the catalog identity hash, based only
   on each asset's `id` and `source.url`, matches the existing outputs.
 - Expose devasset setup status through the API so the webapp can show a

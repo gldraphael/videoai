@@ -22,7 +22,7 @@ mounts.
 - Download source videos and avoid downloading again when the current asset
   source file already exists.
 - Probe video metadata, generate thumbnails, extract audio, and create
-  timestamped transcript files.
+  word-timestamped transcript files.
 - Use `whisper.cpp` inside the seed container for local transcript generation.
 - Write `var/devassets/library.json` as the media library index.
 - Reference transcript files from `library.json` rather than embedding full
@@ -112,13 +112,13 @@ detected automatically.
 ### Generate separate transcript artifacts with `whisper.cpp`
 
 Seed should extract normalized audio with FFmpeg and run `whisper-cli` to
-produce timestamped transcript output. `library.json` should record a
-transcript reference with format, path, generator, model, and language when
-known.
+produce word-timestamped SRT output plus native JSON output. `library.json`
+should record a transcript reference with format, path, JSON path, generator,
+model, and language when known.
 
 Embedding transcripts directly in `library.json` was considered, but separate
-files keep the library compact and allow the API to load transcript detail only
-when needed.
+SRT and JSON files keep the library compact and allow the API to load transcript
+detail only when needed.
 
 ### Add a dedicated seed image
 

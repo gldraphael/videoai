@@ -40,8 +40,8 @@ assets:
 
 The seed service will read `devassets/catalog.yaml`, download source videos,
 probe media with ffprobe, create thumbnails with FFmpeg, extract normalized
-audio, generate timestamped transcript files with `whisper.cpp`, and write a
-compact `var/devassets/library.json` that references generated artifacts.
+audio, generate word-timestamped transcript files with `whisper.cpp`, and write
+a compact `var/devassets/library.json` that references generated artifacts.
 
 The seed implementation should stay lean. TypeScript is acceptable because the
 repository already has a seed package, but Bash or another small
@@ -61,6 +61,7 @@ var/devassets/
         source.mp4
         audio.wav
         transcript.srt
+        transcript.json
 
 var/thumbnails/
   launch-interview-<asset-identity>.jpg
@@ -94,7 +95,13 @@ transcript payloads:
       "transcript": {
         "format": "srt",
         "path": "var/devassets/assets/launch-interview/<asset-identity>/transcript.srt",
-        "generator": "whisper.cpp"
+        "json": {
+          "format": "json",
+          "schema": "whisper.cpp",
+          "path": "var/devassets/assets/launch-interview/<asset-identity>/transcript.json"
+        },
+        "generator": "whisper.cpp",
+        "wordTimestamps": true
       }
     }
   ]

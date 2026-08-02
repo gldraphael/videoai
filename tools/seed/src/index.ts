@@ -48,11 +48,13 @@ type AssetPaths = {
   sourcePath: string;
   audioPath: string;
   transcriptPath: string;
+  transcriptJsonPath: string;
   transcriptOutputBase: string;
   thumbnailPath: string;
   sourceRelPath: string;
   audioRelPath: string;
   transcriptRelPath: string;
+  transcriptJsonRelPath: string;
   thumbnailRelPath: string;
 };
 
@@ -263,10 +265,14 @@ async function generateLibrary(
       await generateThumbnail(paths.sourcePath, paths.thumbnailPath, metadata.durationSeconds);
     }
 
-    if (options.force || !(await exists(paths.transcriptPath))) {
+    if (
+      options.force ||
+      !(await exists(paths.transcriptPath)) ||
+      !(await exists(paths.transcriptJsonPath))
+    ) {
       await writeStatus(runtimePaths.statusPath, {
         state: "running",
-        message: `${prefix}: generating timestamped transcript.`,
+        message: `${prefix}: generating word-timestamped transcript.`,
         catalogIdentity: identity,
         assetCount: catalog.assets.length
       });
@@ -299,14 +305,14 @@ async function buildLibraryFromExistingArtifacts(
     const paths = getAssetPaths(asset, runtimePaths);
 
     return {
-      ...(previous ?? toLibraryAsset(asset, paths, {}, options)),
+      ...toLibraryAsset(asset, paths, previous?.media ?? {}, options),
       id: asset.id,
       title: asset.title,
       type: asset.type,
       sourceIdentity,
       source: {
         url: asset.source.url,
-        path: previous?.source.path ?? paths.sourceRelPath
+        path: paths.sourceRelPath
       }
     };
   });
@@ -348,9 +354,15 @@ function toLibraryAsset(
     transcript: {
       path: paths.transcriptRelPath,
       format: "srt",
+      json: {
+        path: paths.transcriptJsonRelPath,
+        format: "json",
+        schema: "whisper.cpp"
+      },
       generator: "whisper.cpp",
       model: path.basename(options.whisperModel),
-      language: options.whisperLanguage
+      language: options.whisperLanguage,
+      wordTimestamps: true
     }
   };
 }
@@ -369,7 +381,8 @@ async function requiredOutputsExist(
       !(await exists(paths.sourcePath)) ||
       !(await exists(paths.audioPath)) ||
       !(await exists(paths.thumbnailPath)) ||
-      !(await exists(paths.transcriptPath))
+      !(await exists(paths.transcriptPath)) ||
+      !(await exists(paths.transcriptJsonPath))
     ) {
       return false;
     }
@@ -390,6 +403,7 @@ function getAssetPaths(asset: CatalogAsset, runtimePaths: RuntimePaths): AssetPa
     sourcePath: path.join(assetDir, sourceFile),
     audioPath: path.join(assetDir, "audio.wav"),
     transcriptPath: path.join(assetDir, "transcript.srt"),
+    transcriptJsonPath: path.join(assetDir, "transcript.json"),
     transcriptOutputBase: path.join(assetDir, "transcript"),
     thumbnailPath: path.join(runtimePaths.thumbnailsDir, thumbnailFile),
     sourceRelPath: posixJoin("var/devassets/assets", asset.id, identity, sourceFile),
@@ -399,6 +413,12 @@ function getAssetPaths(asset: CatalogAsset, runtimePaths: RuntimePaths): AssetPa
       asset.id,
       identity,
       "transcript.srt"
+    ),
+    transcriptJsonRelPath: posixJoin(
+      "var/devassets/assets",
+      asset.id,
+      identity,
+      "transcript.json"
     ),
     thumbnailRelPath: posixJoin("var/thumbnails", thumbnailFile)
   };
@@ -524,7 +544,10 @@ async function transcribeAudio(
     audioPath,
     "-l",
     options.whisperLanguage,
+    "-ml",
+    "1",
     "-osrt",
+    "-ojf",
     "-of",
     transcriptOutputBase,
     "-np"
