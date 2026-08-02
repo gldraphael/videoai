@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted as high-level direction.
+Superseded by [ADR 0004: Lean Chat-First Video AI Prototype Architecture](0004-lean-chat-first-video-ai-prototype-architecture.md).
 
 ## Context
 
