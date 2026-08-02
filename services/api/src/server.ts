@@ -1,34 +1,10 @@
-import Fastify from "fastify";
 import { createDatabase } from "./db.js";
-import { readDevassetStatus } from "./devassets.js";
 import { readConfig } from "./config.js";
+import { createApiApp } from "./app.js";
 
 const config = readConfig();
 const database = createDatabase(config.databaseUrl);
-const app = Fastify({ logger: true });
-
-app.get("/health", async () => ({
-  service: "api",
-  status: "ok"
-}));
-
-app.get("/health/db", async () => {
-  const check = await database.check();
-
-  return {
-    service: "api",
-    status: "ok",
-    database: check.database,
-    schemaVersion: check.schemaVersion
-  };
-});
-
-app.get("/devassets/status", async () =>
-  readDevassetStatus({
-    statusPath: config.devassetStatusPath,
-    libraryPath: config.devassetLibraryPath
-  })
-);
+const app = createApiApp({ config, database });
 
 async function shutdown() {
   await database.close();

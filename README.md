@@ -79,6 +79,74 @@ on `localhost:5432` for local database tooling.
 The PostgreSQL container runs SQL files from `db/init/` when its named data
 volume is first created.
 
+## Clip Search API
+
+Phase 2 exposes an in-memory, file-backed clip retrieval endpoint from the API:
+
+```text
+POST /clips/search
+```
+
+Through the webapp host and Traefik prefix, call it as:
+
+```bash
+curl --fail -sS \
+  -H 'content-type: application/json' \
+  -d '{"query":"launch recap with product demo","limit":8}' \
+  http://videoai.localhost:8080/api/clips/search
+```
+
+Request body:
+
+```json
+{
+  "query": "launch recap with product demo",
+  "limit": 8
+}
+```
+
+`query` is required and must contain non-whitespace text. `limit` is optional,
+defaults to `8`, and is capped at `20`.
+
+Successful responses include the normalized query and ranked candidate clips:
+
+```json
+{
+  "query": "launch recap with product demo",
+  "results": [
+    {
+      "id": "launch-demo:0-13400",
+      "assetId": "launch-demo",
+      "title": "Launch Product Demo",
+      "startMs": 0,
+      "endMs": 13400,
+      "snippet": "The launch recap opens with a product demo.",
+      "thumbnailPath": "var/thumbnails/launch-demo.jpg",
+      "previewPath": "var/devassets/assets/launch-demo/test/source.mp4",
+      "score": 34
+    }
+  ]
+}
+```
+
+If local devassets are missing, still running, or failed, the endpoint returns a
+non-ready response with the current devasset state and message instead of stale
+results.
+
+Clip search reads `var/devassets/library.json` only after the devasset status is
+ready, then loads each referenced `whisper.cpp` transcript JSON file. Usable
+transcript entries are normalized, empty or special-token-only text is filtered,
+and adjacent timed entries are merged into deterministic clip windows with
+stable ids in the form `<asset-id>:<start-ms>-<end-ms>`. Assets without usable
+transcript text still produce fixed-duration fallback windows from media
+duration and asset metadata; fallback windows leave the transcript snippet empty
+rather than inventing transcript content.
+
+Retrieval is intentionally local for this phase: the API uses generated files
+and in-memory lexical ranking. PostgreSQL remains available for database smoke
+checks, but clip search does not depend on database connectivity; durable
+PostgreSQL-backed retrieval is deferred by ADR 0004.
+
 ## Devasset Seed
 
 The seed command can also be run directly through compose:
