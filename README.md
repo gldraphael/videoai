@@ -1,70 +1,38 @@
 # VideoAI
 
-VideoAI is a prototype for chat-driven video generation with a rich `vspec`
-rendering pipeline. This repository currently contains the local development
-stack, service boundaries, health checks, and a catalog-driven devasset seed
-workflow for preparing sample media.
+VideoAI is a local prototype for chat-driven video generation. It starts from a
+small catalog of sample videos, prepares those videos into local development
+assets, lets you search them from a chat UI, and keeps a Go render-service
+boundary ready for `vspec` rendering work.
 
-## Services
+## Quick start
 
-- `services/webapp`: React + TypeScript prototype shell
-- `services/api`: TypeScript Fastify API with health, database smoke checks,
-  and devasset readiness
-- `services/render`: Go render-service shell with a health check
-- `tools/seed`: TypeScript seed CLI for local devasset media generation
-- `traefik`: local reverse proxy for HTTP routing
-- `postgres`: local PostgreSQL service from `compose.yaml`
+Prerequisites:
 
-## Local Paths
+- Podman with `podman compose`
+- Git and a shell
+- Optional for host-side development: pnpm 11.18.0 and Go 1.26.2
 
-Tracked source configuration:
+The compose file provides local defaults. Copy `.env.example` to `.env` only if
+you want to override ports, database credentials, or generated-data paths.
 
-- `devassets/catalog.yaml`: URL-only source manifest for sample media
-- `devassets/README.md`: notes for development asset conventions
-
-Generated runtime data:
-
-- `var/devassets/`: seed status, media library JSON, source media, audio, and
-  transcripts
-- `var/thumbnails/`: generated poster frames and thumbnails
-- `var/renders/`: generated `vspec` files and rendered videos
-
-The generated `var/*` directories are gitignored and mounted into containers as
-local bind mounts so outputs remain inspectable on the host.
-
-## Setup
-
-Copy `.env.example` to `.env` if you want to override local defaults. The
-compose file also provides defaults for the skeleton.
-
-Install workspace dependencies:
-
-```bash
-pnpm install
-```
-
-Run local checks:
-
-```bash
-pnpm check
-(cd services/render && go test ./...)
-```
-
-## Podman
-
-Start the local stack:
+Start the full local stack from the repository root:
 
 ```bash
 podman compose up --build
 ```
 
-The `seed` service runs during normal compose startup. On the first run it reads
-`devassets/catalog.yaml`, downloads the configured videos, probes metadata,
-extracts audio, generates thumbnails, runs `whisper-cli` for word-timestamped
-SRT and JSON transcripts, writes `var/devassets/library.json`, and exits. The
-webapp shows a setup state until the API reports the generated library is ready.
+Then open the app:
 
-Expected local URLs:
+```text
+http://videoai.localhost:8080
+```
+
+The first run can take a while because the seed image builds `whisper.cpp`,
+downloads the local Whisper model, downloads the configured videos, and prepares
+generated media files. Keep the compose process running while using the app.
+
+Useful local URLs:
 
 - Web app: `http://videoai.localhost:8080`
 - API health: `http://api.videoai.localhost:8080/health`
@@ -72,192 +40,141 @@ Expected local URLs:
 - API devasset readiness: `http://api.videoai.localhost:8080/devassets/status`
 - Render health: `http://render.videoai.localhost:8080/health`
 
-Traefik owns the host HTTP port. The webapp, API, and render service ports are
-only exposed inside the compose network. PostgreSQL remains directly available
-on `localhost:5432` for local database tooling.
+Traefik owns the host HTTP port, which defaults to `8080`. The webapp, API, and
+render service ports are only exposed inside the compose network. PostgreSQL is
+also available on `localhost:5432` for local database tooling.
 
-The PostgreSQL container runs SQL files from `db/init/` when its named data
-volume is first created.
-
-## Phase 3 Chat Flow
-
-Phase 3 replaces the ready-state web shell with an `assistant-ui` chat
-experience at `http://videoai.localhost:8080` once local devassets are ready.
-The chat path is deterministic and local: no OpenAI, Gemini, or other
-model-provider API key is required.
-
-The webapp sends creative requests to the API through Traefik:
-
-```text
-POST /api/chat
-```
-
-The Fastify route behind the stripped `/api` prefix is:
-
-```text
-POST /chat
-```
-
-Request body:
-
-```json
-{
-  "message": "launch recap with product demo",
-  "limit": 8
-}
-```
-
-`message` is required and must contain non-whitespace text. `limit` is optional,
-defaults to `8`, and is capped at `20`. The endpoint calls the same in-memory
-clip retrieval service as `POST /clips/search` and returns assistant content
-parts:
-
-```json
-{
-  "role": "assistant",
-  "content": [
-    {
-      "type": "text",
-      "text": "I found 1 local clip matching \"launch recap\". Select clips to keep them for a later edit plan."
-    },
-    {
-      "type": "clip-candidates",
-      "query": "launch recap",
-      "candidates": [
-        {
-          "id": "launch-demo:0-13400",
-          "assetId": "launch-demo",
-          "title": "Launch Product Demo",
-          "startMs": 0,
-          "endMs": 13400,
-          "snippet": "The launch recap opens with a product demo.",
-          "thumbnailPath": "var/thumbnails/launch-demo.jpg",
-          "previewPath": "var/devassets/assets/launch-demo/test/source.mp4",
-          "thumbnailUrl": "/api/media/thumbnails/launch-demo.jpg",
-          "previewUrl": "/api/media/devassets/assets/launch-demo/test/source.mp4",
-          "score": 34
-        }
-      ]
-    }
-  ]
-}
-```
-
-The `text` part is rendered as the assistant response. The `clip-candidates`
-part is structured data consumed by the webapp's custom renderer for selectable
-clip cards. Empty searches return an explanatory text part plus an empty
-candidate list; the API does not fabricate clip ids, snippets, paths, or media
-URLs.
-
-If devassets are missing, running, or failed, `POST /chat` returns
-`devassets_not_ready` with the current devasset state. The webapp keeps selected
-clips visible when a chat request fails.
-
-## Browser Media URLs
-
-Clip search and chat responses preserve trusted generated references such as
-`var/thumbnails/...` and `var/devassets/...` for backend validation. Phase 3
-also derives browser-fetchable URLs for thumbnails and source video previews:
-
-```text
-var/thumbnails/example.jpg
-  -> /api/media/thumbnails/example.jpg
-
-var/devassets/assets/example/<identity>/source.mp4
-  -> /api/media/devassets/assets/example/<identity>/source.mp4
-```
-
-The API resolves media route suffixes only under configured `THUMBNAILS_DIR` and
-`DEVASSETS_DIR` roots. Thumbnail routes serve supported generated image formats.
-Devasset preview routes serve generated `source.mp4`, `source.mov`, or
-`source.webm` files and support browser byte-range requests. Transcript JSON,
-SRT files, audio extraction artifacts, seed status files, library metadata, path
-traversal, absolute paths, and unsupported file names are rejected.
-
-## Clip Search API
-
-Phase 2 exposes an in-memory, file-backed clip retrieval endpoint from the API:
-
-```text
-POST /clips/search
-```
-
-Through the webapp host and Traefik prefix, call it as:
+For host-side checks:
 
 ```bash
-curl --fail -sS \
-  -H 'content-type: application/json' \
-  -d '{"query":"launch recap with product demo","limit":8}' \
-  http://videoai.localhost:8080/api/clips/search
+pnpm install
+pnpm check
+pnpm --filter @videoai/api test
+pnpm --filter @videoai/webapp test
+(cd services/render && go test ./...)
 ```
 
-Request body:
+## Configuration
 
-```json
-{
-  "query": "launch recap with product demo",
-  "limit": 8
-}
+The main local configuration file is
+[`devassets/catalog.yaml`](devassets/catalog.yaml). It lists the sample videos
+that the prototype should prepare for local development.
+
+A compact catalog looks like this:
+
+```yaml
+version: 1
+
+assets:
+  - id: sintel-1280-mirror2
+    title: Sintel
+    type: video
+    source:
+      url: http://peach.themazzone.com/durian/movies/sintel-1280-surround.mp4
 ```
 
-`query` is required and must contain non-whitespace text. `limit` is optional,
-defaults to `8`, and is capped at `20`.
+Supported fields:
 
-Successful responses include the normalized query and ranked candidate clips:
+- `version`: catalog schema version. The current value must be `1`.
+- `assets`: non-empty list of sample media assets.
+- `id`: stable asset identifier used in generated paths and clip ids.
+- `title`: human-readable label shown in library and clip results.
+- `type`: currently only `video`.
+- `source.url`: absolute `http` or `https` URL for the source video.
 
-```json
-{
-  "query": "launch recap with product demo",
-  "results": [
-    {
-      "id": "launch-demo:0-13400",
-      "assetId": "launch-demo",
-      "title": "Launch Product Demo",
-      "startMs": 0,
-      "endMs": 13400,
-      "snippet": "The launch recap opens with a product demo.",
-      "thumbnailPath": "var/thumbnails/launch-demo.jpg",
-      "previewPath": "var/devassets/assets/launch-demo/test/source.mp4",
-      "score": 34
-    }
-  ]
-}
-```
+Key validation rules:
 
-If local devassets are missing, still running, or failed, the endpoint returns a
-non-ready response with the current devasset state and message instead of stale
-results.
+- Asset ids must be unique lowercase slugs using letters, numbers, and hyphens.
+- Asset ids must start and end with a letter or number and must be 2 to 80
+  characters long.
+- Titles must not be empty.
+- Local file paths are not supported in the catalog during this phase.
+- Extra top-level, asset-level, or `source` fields are rejected.
 
-Clip search reads `var/devassets/library.json` only after the devasset status is
-ready, then loads each referenced `whisper.cpp` transcript JSON file. Usable
-transcript entries are normalized, empty or special-token-only text is filtered,
-and adjacent timed entries are merged into deterministic clip windows with
-stable ids in the form `<asset-id>:<start-ms>-<end-ms>`. Assets without usable
-transcript text still produce fixed-duration fallback windows from media
-duration and asset metadata; fallback windows leave the transcript snippet empty
-rather than inventing transcript content.
+The `seed` service reads this catalog during normal compose startup. For each
+asset, it downloads the source video, probes media metadata, extracts audio,
+generates a thumbnail, creates word-timestamped transcripts, and writes the
+local media library that the app and API consume.
 
-Retrieval is intentionally local for this phase: the API uses generated files
-and in-memory lexical ranking. PostgreSQL remains available for database smoke
-checks, but clip search does not depend on database connectivity; durable
-PostgreSQL-backed retrieval is deferred by ADR 0004.
+Generated files are gitignored and stay inspectable on the host:
 
-## Devasset Seed
+- `var/devassets/`: seed status, source media, audio, transcripts, and
+  `library.json`
+- `var/thumbnails/`: generated poster frames and thumbnails
+- `var/renders/`: generated `vspec` files and rendered videos
 
-The seed command can also be run directly through compose:
+After changing the catalog, restart the stack or rerun only the seed service:
 
 ```bash
 podman compose run --rm seed pnpm --filter @videoai/seed seed:devassets devassets/catalog.yaml
 ```
 
-Use `--force` to regenerate current media artifacts even when the catalog
-identity is unchanged:
+The seed identity is based on each asset's `id` and `source.url`. Changing a
+title refreshes `library.json` metadata without redownloading media. Changing an
+asset id or URL creates a new asset identity and prepares new generated outputs.
+Use `--force` on the seed command to regenerate existing media artifacts.
 
-```bash
-podman compose run --rm seed pnpm --filter @videoai/seed seed:devassets devassets/catalog.yaml --force
+More generated-data details live in [`var/README.md`](var/README.md), and
+`devassets` directory conventions live in
+[`devassets/README.md`](devassets/README.md).
+
+## System architecture
+
+```text
+Browser
+  |
+  v
+Traefik on :8080
+  |-- videoai.localhost ----------> Webapp (React + Vite)
+  |-- videoai.localhost/api/* ----> API (Fastify, /api prefix stripped)
+  |-- api.videoai.localhost -----> API (Fastify)
+  `-- render.videoai.localhost --> Render service (Go)
+
+devassets/catalog.yaml
+  |
+  v
+Seed service
+  |
+  v
+Generated local data
+  |-- var/devassets/library.json
+  |-- var/devassets/assets/... source media, audio, transcripts
+  |-- var/thumbnails/...
+  `-- var/renders/...
+
+API
+  |-- reads generated devasset data for status, clip search, thumbnails, previews
+  |-- checks PostgreSQL for database health and bootstrap
+  `-- uses the render service boundary for rendered-video workflows
 ```
 
-The no-op identity is based only on each asset's `id` and `source.url`. Title
-changes refresh `library.json` metadata without re-downloading or regenerating
-media artifacts. Delete `var/devassets/` and `var/thumbnails/` to manually clean
-all generated seed output before running seed again.
+The PostgreSQL container runs SQL files from [`db/init/`](db/init/) when its
+named data volume is first created. See [`db/README.md`](db/README.md) for local
+database notes.
+
+## How it works
+
+The catalog is the starting point. It tells the prototype which sample videos to
+use, with a stable id, a title, and a URL for each one.
+
+The seed service hides the tedious media-preparation work. Instead of asking you
+to download files, inspect codecs, make thumbnails, extract audio, run
+transcription, and assemble a local index by hand, it turns the catalog into the
+generated files under `var/`.
+
+The webapp is the front door. It shows setup progress until the generated
+library is ready, then opens a chat experience where you can describe the kind
+of clip you want.
+
+The API connects the chat request to local clip search. It reads the generated
+media library and transcripts, returns matching clip candidates, and exposes
+browser-safe thumbnail and preview URLs for the webapp. Detailed API route
+reference lives in [`services/api/README.md`](services/api/README.md).
+
+The render service is the Go boundary for turning future edit plans into
+rendered video outputs. It shares the same generated local data directories as
+the API so render inputs and outputs stay visible in the workspace.
+
+PostgreSQL and Traefik support the local development environment. PostgreSQL
+provides the database used by the API, and Traefik gives the stack stable local
+hostnames that match how the browser talks to the services.
