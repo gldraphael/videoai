@@ -1,13 +1,35 @@
-import { useEffect, useState } from "react";
-
-type DevassetStatus = {
-  state: "missing" | "running" | "ready" | "error";
-  ready: boolean;
-  message: string;
-  assetCount?: number;
-  catalogIdentity?: string;
-  updatedAt?: string;
-};
+import {
+  AssistantRuntimeProvider,
+  ComposerPrimitive,
+  ThreadPrimitive,
+  useLocalRuntime,
+  type MessageState
+} from "@assistant-ui/react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction
+} from "react";
+import {
+  appModeForDevassetStatus,
+  clipPreviewUrl,
+  createClipChatAdapter,
+  deselectClip,
+  formatScore,
+  formatTimeRange,
+  parseSelectedClips,
+  selectClip,
+  selectedClipsStorageKey,
+  serializeSelectedClips,
+  type ChatNotice,
+  type ClipCandidate,
+  type ClipCandidatesData,
+  type DevassetStatus,
+  type SelectedClip
+} from "./chatModel";
 
 const setupPollMs = 2500;
 const initialStatus: DevassetStatus = {
@@ -16,48 +38,326 @@ const initialStatus: DevassetStatus = {
   message: "Checking local development assets."
 };
 
-const serviceChecks = [
-  { label: "Web shell", value: "running" },
-  { label: "API service", value: "health endpoint ready" },
-  { label: "Render service", value: "health endpoint ready" },
-  { label: "Devassets", value: "ready" }
-];
-
 export function App() {
   const status = useDevassetStatus();
 
-  if (status.state === "error") {
+  return <AppView status={status} />;
+}
+
+export function AppView({ status }: { status: DevassetStatus }) {
+  const mode = appModeForDevassetStatus(status);
+
+  if (mode === "error") {
     return <SetupError status={status} />;
   }
 
-  if (!status.ready) {
+  if (mode === "setup") {
     return <SetupScreen status={status} />;
   }
 
+  return <ChatExperience status={status} />;
+}
+
+function ChatExperience({ status }: { status: DevassetStatus }) {
+  const [notice, setNotice] = useState<ChatNotice | null>(null);
+  const [selectedClips, setSelectedClips] = useSessionSelectedClips();
+  const selectedIds = useMemo(
+    () => new Set(selectedClips.map((clip) => clip.id)),
+    [selectedClips]
+  );
+  const adapter = useMemo(
+    () =>
+      createClipChatAdapter({
+        onNotice: setNotice
+      }),
+    []
+  );
+  const runtime = useLocalRuntime(adapter);
+
+  const handleSelect = useCallback((candidate: ClipCandidate) => {
+    setSelectedClips((current) => selectClip(current, candidate));
+  }, [setSelectedClips]);
+
+  const handleDeselect = useCallback((clipId: string) => {
+    setSelectedClips((current) => deselectClip(current, clipId));
+  }, [setSelectedClips]);
+
   return (
-    <main className="app-shell">
-      <section className="intro">
-        <p className="eyebrow">VideoAI prototype</p>
-        <h1>Local media library is ready</h1>
-        <p className="summary">
-          The local stack can now read generated media, thumbnails, and
-          transcript references from the devasset seed output.
-        </p>
+    <main className="chat-shell">
+      <section className="workspace">
+        <header className="workspace-header">
+          <div>
+            <p className="eyebrow">VideoAI prototype</p>
+            <h1>Local clip search</h1>
+          </div>
+          <div className="workspace-meta" aria-label="Devasset status">
+            <span>{status.assetCount ?? 0} assets</span>
+            <span>Phase 3 local search only</span>
+          </div>
+        </header>
+
+        {notice ? <ChatNoticeBanner notice={notice} /> : null}
+
+        <AssistantRuntimeProvider runtime={runtime}>
+          <ThreadPrimitive.Root className="thread-root">
+            <ThreadPrimitive.Viewport className="thread-viewport">
+              <ThreadPrimitive.Messages>
+                {({ message }) => (
+                  <ChatMessage
+                    message={message}
+                    onDeselect={handleDeselect}
+                    onSelect={handleSelect}
+                    selectedIds={selectedIds}
+                  />
+                )}
+              </ThreadPrimitive.Messages>
+              <ThreadPrimitive.Empty>
+                <div className="thread-empty">Local clips are ready.</div>
+              </ThreadPrimitive.Empty>
+              <ThreadPrimitive.ViewportFooter>
+                <ComposerPrimitive.Root className="composer">
+                  <ComposerPrimitive.Input
+                    className="composer-input"
+                    placeholder="Search for launch moments, reactions, product shots..."
+                    rows={2}
+                    submitMode="enter"
+                  />
+                  <ComposerPrimitive.Send className="composer-send">
+                    Send
+                  </ComposerPrimitive.Send>
+                </ComposerPrimitive.Root>
+              </ThreadPrimitive.ViewportFooter>
+            </ThreadPrimitive.Viewport>
+          </ThreadPrimitive.Root>
+        </AssistantRuntimeProvider>
       </section>
 
-      <section className="status-grid" aria-label="Skeleton status">
-        {serviceChecks.map((item) => (
-          <article className="status-tile" key={item.label}>
-            <span>{item.label}</span>
-            <strong>{item.value}</strong>
-          </article>
-        ))}
-        <article className="status-tile">
-          <span>Media assets</span>
-          <strong>{status.assetCount ?? 0}</strong>
-        </article>
-      </section>
+      <SelectedClipsPanel
+        onDeselect={handleDeselect}
+        selectedClips={selectedClips}
+      />
     </main>
+  );
+}
+
+function ChatMessage({
+  message,
+  onDeselect,
+  onSelect,
+  selectedIds
+}: {
+  message: MessageState;
+  onDeselect: (clipId: string) => void;
+  onSelect: (candidate: ClipCandidate) => void;
+  selectedIds: Set<string>;
+}) {
+  const label =
+    message.role === "user"
+      ? "You"
+      : message.role === "assistant"
+        ? "Assistant"
+        : "System";
+
+  return (
+    <article className="chat-message">
+      <div className="message-label">{label}</div>
+      <div className="message-body">
+        {message.content.length > 0 ? (
+          message.content.map((part, index) => {
+            if (part.type === "text") {
+              return (
+                <p className="message-text" key={index}>
+                  {part.text}
+                </p>
+              );
+            }
+
+            if (
+              part.type === "data" &&
+              part.name === "clip-candidates" &&
+              isClipCandidatesData(part.data)
+            ) {
+              return (
+                <ClipCandidatesPart
+                  data={part.data}
+                  key={index}
+                  onDeselect={onDeselect}
+                  onSelect={onSelect}
+                  selectedIds={selectedIds}
+                />
+              );
+            }
+
+            return null;
+          })
+        ) : message.role === "assistant" &&
+          message.status?.type === "running" ? (
+          <p className="message-text">Searching local clips...</p>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function isClipCandidatesData(value: unknown): value is ClipCandidatesData {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidateData = value as ClipCandidatesData;
+  return (
+    typeof candidateData.query === "string" &&
+    Array.isArray(candidateData.candidates)
+  );
+}
+
+function ClipCandidatesPart({
+  data,
+  onDeselect,
+  onSelect,
+  selectedIds
+}: {
+  data: ClipCandidatesData;
+  onDeselect: (clipId: string) => void;
+  onSelect: (candidate: ClipCandidate) => void;
+  selectedIds: Set<string>;
+}) {
+  const candidates: ClipCandidate[] = data.candidates;
+
+  if (candidates.length === 0) {
+    return (
+      <div className="clip-empty" data-testid="clip-empty">
+        No clips returned for this request.
+      </div>
+    );
+  }
+
+  return (
+    <div className="clip-results" aria-label={`Clip results for ${data.query}`}>
+      {candidates.map((candidate) => {
+        const selected = selectedIds.has(candidate.id);
+        return (
+          <ClipCard
+            candidate={candidate}
+            key={candidate.id}
+            onDeselect={onDeselect}
+            onSelect={onSelect}
+            selected={selected}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ClipCard({
+  candidate,
+  onDeselect,
+  onSelect,
+  selected
+}: {
+  candidate: ClipCandidate;
+  onDeselect: (clipId: string) => void;
+  onSelect: (candidate: ClipCandidate) => void;
+  selected: boolean;
+}) {
+  const previewUrl = clipPreviewUrl(candidate);
+
+  return (
+    <article className="clip-card">
+      <div className="clip-media">
+        {previewUrl ? (
+          <video
+            controls
+            poster={candidate.thumbnailUrl ?? undefined}
+            preload="metadata"
+            src={previewUrl}
+          />
+        ) : candidate.thumbnailUrl ? (
+          <img alt="" src={candidate.thumbnailUrl} />
+        ) : (
+          <div className="clip-media-missing" aria-hidden="true" />
+        )}
+      </div>
+      <div className="clip-detail">
+        <div className="clip-heading">
+          <h2>{candidate.title}</h2>
+          <span>{formatScore(candidate.score)}</span>
+        </div>
+        <p className="clip-time">
+          {formatTimeRange(candidate.startMs, candidate.endMs)}
+        </p>
+        {candidate.snippet.trim() ? (
+          <p className="clip-snippet">{candidate.snippet}</p>
+        ) : null}
+        <button
+          className={selected ? "clip-button clip-button-active" : "clip-button"}
+          onClick={() => {
+            if (selected) {
+              onDeselect(candidate.id);
+              return;
+            }
+
+            onSelect(candidate);
+          }}
+          type="button"
+        >
+          {selected ? "Deselect" : "Select"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function SelectedClipsPanel({
+  onDeselect,
+  selectedClips
+}: {
+  onDeselect: (clipId: string) => void;
+  selectedClips: SelectedClip[];
+}) {
+  return (
+    <aside className="selected-panel" aria-label="Selected clips">
+      <div className="selected-panel-header">
+        <h2>Selected clips</h2>
+        <span>{selectedClips.length}</span>
+      </div>
+
+      {selectedClips.length === 0 ? (
+        <p className="selected-empty">No clips selected.</p>
+      ) : (
+        <ul className="selected-list">
+          {selectedClips.map((clip) => (
+            <li className="selected-item" key={clip.id}>
+              {clip.thumbnailUrl ? <img alt="" src={clip.thumbnailUrl} /> : null}
+              <div>
+                <strong>{clip.title}</strong>
+                <span>{formatTimeRange(clip.startMs, clip.endMs)}</span>
+              </div>
+              <button onClick={() => onDeselect(clip.id)} type="button">
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </aside>
+  );
+}
+
+function ChatNoticeBanner({ notice }: { notice: ChatNotice }) {
+  return (
+    <div
+      className={notice.type === "error" ? "chat-notice error" : "chat-notice"}
+      role={notice.type === "error" ? "alert" : "status"}
+    >
+      <strong>
+        {notice.type === "devassets"
+          ? `Devassets ${notice.devassets.state}`
+          : "Chat unavailable"}
+      </strong>
+      <span>{notice.message}</span>
+    </div>
   );
 }
 
@@ -86,6 +386,30 @@ function SetupError({ status }: { status: DevassetStatus }) {
       </section>
     </main>
   );
+}
+
+function useSessionSelectedClips(): [
+  SelectedClip[],
+  Dispatch<SetStateAction<SelectedClip[]>>
+] {
+  const [selectedClips, setSelectedClips] = useState<SelectedClip[]>(() => {
+    if (typeof window === "undefined") {
+      return [];
+    }
+
+    return parseSelectedClips(
+      window.sessionStorage.getItem(selectedClipsStorageKey)
+    );
+  });
+
+  useEffect(() => {
+    window.sessionStorage.setItem(
+      selectedClipsStorageKey,
+      serializeSelectedClips(selectedClips)
+    );
+  }, [selectedClips]);
+
+  return [selectedClips, setSelectedClips];
 }
 
 function useDevassetStatus(): DevassetStatus {

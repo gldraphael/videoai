@@ -79,6 +79,101 @@ on `localhost:5432` for local database tooling.
 The PostgreSQL container runs SQL files from `db/init/` when its named data
 volume is first created.
 
+## Phase 3 Chat Flow
+
+Phase 3 replaces the ready-state web shell with an `assistant-ui` chat
+experience at `http://videoai.localhost:8080` once local devassets are ready.
+The chat path is deterministic and local: no OpenAI, Gemini, or other
+model-provider API key is required.
+
+The webapp sends creative requests to the API through Traefik:
+
+```text
+POST /api/chat
+```
+
+The Fastify route behind the stripped `/api` prefix is:
+
+```text
+POST /chat
+```
+
+Request body:
+
+```json
+{
+  "message": "launch recap with product demo",
+  "limit": 8
+}
+```
+
+`message` is required and must contain non-whitespace text. `limit` is optional,
+defaults to `8`, and is capped at `20`. The endpoint calls the same in-memory
+clip retrieval service as `POST /clips/search` and returns assistant content
+parts:
+
+```json
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "I found 1 local clip matching \"launch recap\". Select clips to keep them for a later edit plan."
+    },
+    {
+      "type": "clip-candidates",
+      "query": "launch recap",
+      "candidates": [
+        {
+          "id": "launch-demo:0-13400",
+          "assetId": "launch-demo",
+          "title": "Launch Product Demo",
+          "startMs": 0,
+          "endMs": 13400,
+          "snippet": "The launch recap opens with a product demo.",
+          "thumbnailPath": "var/thumbnails/launch-demo.jpg",
+          "previewPath": "var/devassets/assets/launch-demo/test/source.mp4",
+          "thumbnailUrl": "/api/media/thumbnails/launch-demo.jpg",
+          "previewUrl": "/api/media/devassets/assets/launch-demo/test/source.mp4",
+          "score": 34
+        }
+      ]
+    }
+  ]
+}
+```
+
+The `text` part is rendered as the assistant response. The `clip-candidates`
+part is structured data consumed by the webapp's custom renderer for selectable
+clip cards. Empty searches return an explanatory text part plus an empty
+candidate list; the API does not fabricate clip ids, snippets, paths, or media
+URLs.
+
+If devassets are missing, running, or failed, `POST /chat` returns
+`devassets_not_ready` with the current devasset state. The webapp keeps selected
+clips visible when a chat request fails.
+
+## Browser Media URLs
+
+Clip search and chat responses preserve trusted generated references such as
+`var/thumbnails/...` and `var/devassets/...` for backend validation. Phase 3
+also derives browser-fetchable URLs for thumbnails and source video previews:
+
+```text
+var/thumbnails/example.jpg
+  -> /api/media/thumbnails/example.jpg
+
+var/devassets/assets/example/<identity>/source.mp4
+  -> /api/media/devassets/assets/example/<identity>/source.mp4
+```
+
+The API resolves media route suffixes only under configured `THUMBNAILS_DIR` and
+`DEVASSETS_DIR` roots. Thumbnail routes serve supported generated image formats.
+Devasset preview routes serve generated `source.mp4`, `source.mov`, or
+`source.webm` files and support browser byte-range requests. Transcript JSON,
+SRT files, audio extraction artifacts, seed status files, library metadata, path
+traversal, absolute paths, and unsupported file names are rejected.
+
 ## Clip Search API
 
 Phase 2 exposes an in-memory, file-backed clip retrieval endpoint from the API:
