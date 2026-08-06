@@ -1,16 +1,23 @@
 import {
   AssistantRuntimeProvider,
-  ComposerPrimitive,
+  MessagePartPrimitive,
+  MessagePrimitive,
   ThreadPrimitive,
+  useAui,
+  useAuiState,
   useLocalRuntime,
-  type MessageState
+  type MessageState,
+  type TextMessagePartProps
 } from "@assistant-ui/react";
 import {
   useCallback,
   useEffect,
   useMemo,
   useState,
+  type ChangeEvent,
   type Dispatch,
+  type FormEvent,
+  type KeyboardEvent,
   type SetStateAction
 } from "react";
 import {
@@ -84,18 +91,7 @@ function ChatExperience({ status }: { status: DevassetStatus }) {
 
   return (
     <main className="chat-shell">
-      <section className="workspace">
-        <header className="workspace-header">
-          <div>
-            <p className="eyebrow">VideoAI prototype</p>
-            <h1>Local clip search</h1>
-          </div>
-          <div className="workspace-meta" aria-label="Devasset status">
-            <span>{status.assetCount ?? 0} assets</span>
-            <span>Phase 3 local search only</span>
-          </div>
-        </header>
-
+      <section className="assistant-surface" aria-label="VideoAI assistant">
         {notice ? <ChatNoticeBanner notice={notice} /> : null}
 
         <AssistantRuntimeProvider runtime={runtime}>
@@ -112,20 +108,13 @@ function ChatExperience({ status }: { status: DevassetStatus }) {
                 )}
               </ThreadPrimitive.Messages>
               <ThreadPrimitive.Empty>
-                <div className="thread-empty">Local clips are ready.</div>
+                <div className="thread-empty">
+                  Ask for launch moments, reactions, product shots, or other
+                  local clips.
+                </div>
               </ThreadPrimitive.Empty>
               <ThreadPrimitive.ViewportFooter>
-                <ComposerPrimitive.Root className="composer">
-                  <ComposerPrimitive.Input
-                    className="composer-input"
-                    placeholder="Search for launch moments, reactions, product shots..."
-                    rows={2}
-                    submitMode="enter"
-                  />
-                  <ComposerPrimitive.Send className="composer-send">
-                    Send
-                  </ComposerPrimitive.Send>
-                </ComposerPrimitive.Root>
+                <LocalComposer />
               </ThreadPrimitive.ViewportFooter>
             </ThreadPrimitive.Viewport>
           </ThreadPrimitive.Root>
@@ -140,7 +129,81 @@ function ChatExperience({ status }: { status: DevassetStatus }) {
   );
 }
 
-function ChatMessage({
+function LocalComposer() {
+  const aui = useAui();
+  const committedText = useAuiState((state) => state.composer.text);
+  const isInputDisabled = useAuiState(
+    (state) =>
+      state.thread.isDisabled || Boolean(state.composer.dictation?.inputDisabled)
+  );
+  const isSendBlocked = useAuiState(
+    (state) => state.thread.isRunning && !state.thread.capabilities.queue
+  );
+  const [draft, setDraft] = useState("");
+  const canSend = draft.trim().length > 0 && !isInputDisabled && !isSendBlocked;
+
+  useEffect(() => {
+    if (committedText === "") {
+      setDraft("");
+    }
+  }, [committedText]);
+
+  const commitAndSend = useCallback(() => {
+    if (!canSend) {
+      return;
+    }
+
+    aui.composer.setText(draft);
+    aui.composer.send();
+    setDraft("");
+  }, [aui, canSend, draft]);
+
+  const handleSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      commitAndSend();
+    },
+    [commitAndSend]
+  );
+
+  const handleChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+    setDraft(event.target.value);
+  }, []);
+
+  const handleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.nativeEvent.isComposing) {
+        return;
+      }
+
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        commitAndSend();
+      }
+    },
+    [commitAndSend]
+  );
+
+  return (
+    <form className="composer" onSubmit={handleSubmit}>
+      <textarea
+        className="composer-input"
+        disabled={isInputDisabled}
+        name="input"
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        placeholder="Search for launch moments, reactions, product shots..."
+        rows={2}
+        value={draft}
+      />
+      <button className="composer-send" disabled={!canSend} type="submit">
+        Send
+      </button>
+    </form>
+  );
+}
+
+export function ChatMessage({
   message,
   onDeselect,
   onSelect,
@@ -159,28 +222,21 @@ function ChatMessage({
         : "System";
 
   return (
-    <article className="chat-message">
+    <MessagePrimitive.Root
+      className={`chat-message chat-message-${message.role}`}
+    >
       <div className="message-label">{label}</div>
       <div className="message-body">
-        {message.content.length > 0 ? (
-          message.content.map((part, index) => {
+        <MessagePrimitive.Parts>
+          {({ part }) => {
             if (part.type === "text") {
-              return (
-                <p className="message-text" key={index}>
-                  {part.text}
-                </p>
-              );
+              return <MessageTextPart {...part} />;
             }
 
-            if (
-              part.type === "data" &&
-              part.name === "clip-candidates" &&
-              isClipCandidatesData(part.data)
-            ) {
+            if (part.type === "data" && part.name === "clip-candidates") {
               return (
-                <ClipCandidatesPart
+                <ClipCandidatesDataPart
                   data={part.data}
-                  key={index}
                   onDeselect={onDeselect}
                   onSelect={onSelect}
                   selectedIds={selectedIds}
@@ -189,17 +245,56 @@ function ChatMessage({
             }
 
             return null;
-          })
-        ) : message.role === "assistant" &&
-          message.status?.type === "running" ? (
-          <p className="message-text">Searching local clips...</p>
-        ) : null}
+          }}
+        </MessagePrimitive.Parts>
       </div>
-    </article>
+    </MessagePrimitive.Root>
   );
 }
 
-function isClipCandidatesData(value: unknown): value is ClipCandidatesData {
+function MessageTextPart({ status, text }: TextMessagePartProps) {
+  const isRunningEmpty = status?.type === "running" && text.length === 0;
+
+  return (
+    <p className="message-text">
+      <MessagePartPrimitive.Text />
+      <MessagePartPrimitive.InProgress>
+        {isRunningEmpty ? (
+          "Searching local clips..."
+        ) : (
+          <span className="message-running-dot" aria-label="Assistant running" />
+        )}
+      </MessagePartPrimitive.InProgress>
+    </p>
+  );
+}
+
+function ClipCandidatesDataPart({
+  data,
+  onDeselect,
+  onSelect,
+  selectedIds
+}: {
+  data: unknown;
+  onDeselect: (clipId: string) => void;
+  onSelect: (candidate: ClipCandidate) => void;
+  selectedIds: Set<string>;
+}) {
+  if (!isClipCandidatesData(data)) {
+    return null;
+  }
+
+  return (
+    <ClipCandidatesPart
+      data={data}
+      onDeselect={onDeselect}
+      onSelect={onSelect}
+      selectedIds={selectedIds}
+    />
+  );
+}
+
+export function isClipCandidatesData(value: unknown): value is ClipCandidatesData {
   if (!value || typeof value !== "object") {
     return false;
   }

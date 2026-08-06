@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import type {
-  ChatModelAdapter,
-  ChatModelRunOptions,
-  ChatModelRunResult
+import {
+  AssistantRuntimeProvider,
+  ThreadPrimitive,
+  fromThreadMessageLike,
+  type ChatModelAdapter,
+  type ChatModelRunOptions,
+  type ChatModelRunResult,
+  type MessageState,
+  type ThreadMessage,
+  type ThreadMessageLike,
+  useExternalStoreRuntime
 } from "@assistant-ui/react";
-import { AppView } from "./App";
+import { AppView, ChatMessage } from "./App";
 import {
   appModeForDevassetStatus,
   chatResponseToAssistantContent,
@@ -41,13 +48,15 @@ test("renders setup states until ready and assistant chat once ready", () => {
   );
   assert.match(setupMarkup, /Setting things up/);
   assert.doesNotMatch(setupMarkup, /Local clip search/);
+  assert.doesNotMatch(setupMarkup, /Search for launch moments/);
 
   const readyMarkup = renderToString(
     createElement(AppView, {
       status: statusFixture("ready", true)
     })
   );
-  assert.match(readyMarkup, /Local clip search/);
+  assert.doesNotMatch(readyMarkup, /Local clip search/);
+  assert.match(readyMarkup, /assistant-surface/);
   assert.match(readyMarkup, /Search for launch moments/);
   assert.match(readyMarkup, /Selected clips/);
 });
@@ -97,6 +106,47 @@ test("maps chat responses to assistant text and structured clip-candidates data"
     query: "does-not-match",
     candidates: []
   });
+});
+
+test("renders structured clip candidates through assistant message parts", () => {
+  const candidate = clipCandidateFixture();
+  const markup = renderToString(
+    createElement(RenderAssistantMessages, {
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "I found 1 local clip."
+            },
+            {
+              type: "data",
+              name: "clip-candidates",
+              data: {
+                query: "product demo",
+                candidates: [candidate]
+              }
+            }
+          ],
+          status: {
+            type: "complete",
+            reason: "stop"
+          }
+        }
+      ],
+      selectedIds: new Set([candidate.id])
+    })
+  );
+
+  assert.match(markup, /I found 1 local clip/);
+  assert.match(markup, /Launch Product Demo/);
+  assert.match(markup, /34\.2/);
+  assert.match(markup, /Deselect/);
+  assert.match(
+    markup,
+    /\/api\/media\/devassets\/assets\/launch-demo\/test\/source\.mp4#t=0,13\.4/
+  );
 });
 
 test("extracts latest user text from assistant-ui message history", () => {
@@ -271,6 +321,47 @@ async function runAdapter(
       return messages.at(-1) as never;
     }
   } as ChatModelRunOptions) as Promise<ChatModelRunResult>;
+}
+
+function RenderAssistantMessages({
+  messages,
+  selectedIds = new Set<string>()
+}: {
+  messages: ThreadMessageLike[];
+  selectedIds?: Set<string>;
+}) {
+  const threadMessages = messages.map((message, index) =>
+    fromThreadMessageLike(message, `message-${index}`, {
+      type: "complete",
+      reason: "stop"
+    })
+  );
+  const runtime = useExternalStoreRuntime<ThreadMessage>({
+    messages: threadMessages,
+    async onNew() {}
+  });
+
+  return createElement(
+    AssistantRuntimeProvider,
+    { runtime },
+    createElement(
+      ThreadPrimitive.Root,
+      null,
+      createElement(
+        ThreadPrimitive.Viewport,
+        null,
+        createElement(ThreadPrimitive.Messages, {
+          children: ({ message }: { message: MessageState }) =>
+            createElement(ChatMessage, {
+              message,
+              onDeselect() {},
+              onSelect() {},
+              selectedIds
+            })
+        })
+      )
+    )
+  );
 }
 
 function textContent(result: ChatModelRunResult): string {
