@@ -1,4 +1,4 @@
-FROM docker.io/library/node:26-bookworm-slim
+FROM docker.io/library/node:26-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -11,7 +11,11 @@ COPY tools/seed/package.json tools/seed/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY services/webapp services/webapp
+RUN pnpm --filter @videoai/webapp build
+
+FROM docker.io/library/caddy:2-alpine
+
+COPY services/webapp/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/services/webapp/dist /usr/share/caddy
 
 EXPOSE 5173
-
-CMD ["pnpm", "--filter", "@videoai/webapp", "dev"]
