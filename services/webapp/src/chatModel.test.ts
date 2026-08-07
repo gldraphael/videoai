@@ -4,17 +4,18 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import {
   AssistantRuntimeProvider,
-  ThreadPrimitive,
+  MessagePrimitive,
   fromThreadMessageLike,
   type ChatModelAdapter,
   type ChatModelRunOptions,
   type ChatModelRunResult,
-  type MessageState,
+  type DataMessagePartProps,
   type ThreadMessage,
   type ThreadMessageLike,
   useExternalStoreRuntime
 } from "@assistant-ui/react";
-import { AppView, ChatMessage } from "./App";
+import { Thread } from "@/components/assistant-ui/thread";
+import { AppView, ClipCandidatesDataRenderer } from "./App";
 import {
   appModeForDevassetStatus,
   chatResponseToAssistantContent,
@@ -48,7 +49,7 @@ test("renders setup states until ready and assistant chat once ready", () => {
   );
   assert.match(setupMarkup, /Setting things up/);
   assert.doesNotMatch(setupMarkup, /Local clip search/);
-  assert.doesNotMatch(setupMarkup, /Search for launch moments/);
+  assert.doesNotMatch(setupMarkup, /Send a message/);
 
   const readyMarkup = renderToString(
     createElement(AppView, {
@@ -57,7 +58,8 @@ test("renders setup states until ready and assistant chat once ready", () => {
   );
   assert.doesNotMatch(readyMarkup, /Local clip search/);
   assert.match(readyMarkup, /assistant-surface/);
-  assert.match(readyMarkup, /Search for launch moments/);
+  assert.match(readyMarkup, /How can I help you today/);
+  assert.match(readyMarkup, /Send a message/);
   assert.match(readyMarkup, /Selected clips/);
 });
 
@@ -108,10 +110,10 @@ test("maps chat responses to assistant text and structured clip-candidates data"
   });
 });
 
-test("renders structured clip candidates through assistant message parts", () => {
+test("renders structured clip candidates through assistant data UI", () => {
   const candidate = clipCandidateFixture();
   const markup = renderToString(
-    createElement(RenderAssistantMessages, {
+    createElement(RenderAssistantThread, {
       messages: [
         {
           role: "assistant",
@@ -275,6 +277,7 @@ test("local runtime adapter surfaces devasset-not-ready without stale candidates
       candidates: []
     }
   });
+  assertRecoverableResultRenders(result, /running/);
 });
 
 test("local runtime adapter returns recoverable error content on API failure", async () => {
@@ -305,6 +308,7 @@ test("local runtime adapter returns recoverable error content on API failure", a
       candidates: []
     }
   });
+  assertRecoverableResultRenders(result, /clip index failed/);
 });
 
 async function runAdapter(
@@ -323,7 +327,7 @@ async function runAdapter(
   } as ChatModelRunOptions) as Promise<ChatModelRunResult>;
 }
 
-function RenderAssistantMessages({
+function RenderAssistantThread({
   messages,
   selectedIds = new Set<string>()
 }: {
@@ -344,24 +348,64 @@ function RenderAssistantMessages({
   return createElement(
     AssistantRuntimeProvider,
     { runtime },
-    createElement(
-      ThreadPrimitive.Root,
-      null,
-      createElement(
-        ThreadPrimitive.Viewport,
-        null,
-        createElement(ThreadPrimitive.Messages, {
-          children: ({ message }: { message: MessageState }) =>
-            createElement(ChatMessage, {
-              message,
-              onDeselect() {},
-              onSelect() {},
-              selectedIds
-            })
-        })
-      )
-    )
+    createElement(Thread, {
+      components: {
+        AssistantMessage: () =>
+          createElement(MessagePrimitive.Parts, {
+            components: {
+              data: {
+                by_name: {
+                  "clip-candidates": (props: DataMessagePartProps) =>
+                    createElement(ClipCandidatesDataRenderer, {
+                      ...props,
+                      onDeselect() {},
+                      onSelect() {},
+                      selectedIds
+                    })
+                }
+              }
+            }
+          })
+      }
+    })
   );
+}
+
+function RenderRecoverableResult({
+  result,
+  selectedIds = new Set<string>()
+}: {
+  result: ChatModelRunResult;
+  selectedIds?: Set<string>;
+}) {
+  return createElement(RenderAssistantThread, {
+    messages: [
+      {
+        role: "assistant",
+        content: result.content ?? [],
+        status: result.status ?? {
+          type: "complete",
+          reason: "stop"
+        }
+      }
+    ],
+    selectedIds
+  });
+}
+
+function assertRecoverableResultRenders(
+  result: ChatModelRunResult,
+  expected: RegExp
+) {
+  const markup = renderToString(
+    createElement(RenderRecoverableResult, {
+      result
+    })
+  );
+
+  assert.match(markup, expected);
+  assert.match(markup, /No clips returned for this request/);
+  assert.doesNotMatch(markup, /chat-notice/);
 }
 
 function textContent(result: ChatModelRunResult): string {

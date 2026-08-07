@@ -1,25 +1,18 @@
 import {
   AssistantRuntimeProvider,
-  MessagePartPrimitive,
-  MessagePrimitive,
-  ThreadPrimitive,
-  useAui,
-  useAuiState,
+  useAssistantDataUI,
   useLocalRuntime,
-  type MessageState,
-  type TextMessagePartProps
+  type DataMessagePartProps
 } from "@assistant-ui/react";
 import {
   useCallback,
   useEffect,
   useMemo,
   useState,
-  type ChangeEvent,
   type Dispatch,
-  type FormEvent,
-  type KeyboardEvent,
   type SetStateAction
 } from "react";
+import { Thread } from "@/components/assistant-ui/thread";
 import {
   appModeForDevassetStatus,
   clipPreviewUrl,
@@ -31,7 +24,6 @@ import {
   selectClip,
   selectedClipsStorageKey,
   serializeSelectedClips,
-  type ChatNotice,
   type ClipCandidate,
   type ClipCandidatesData,
   type DevassetStatus,
@@ -62,23 +54,16 @@ export function AppView({ status }: { status: DevassetStatus }) {
     return <SetupScreen status={status} />;
   }
 
-  return <ChatExperience status={status} />;
+  return <ChatExperience />;
 }
 
-function ChatExperience({ status }: { status: DevassetStatus }) {
-  const [notice, setNotice] = useState<ChatNotice | null>(null);
+function ChatExperience() {
   const [selectedClips, setSelectedClips] = useSessionSelectedClips();
   const selectedIds = useMemo(
     () => new Set(selectedClips.map((clip) => clip.id)),
     [selectedClips]
   );
-  const adapter = useMemo(
-    () =>
-      createClipChatAdapter({
-        onNotice: setNotice
-      }),
-    []
-  );
+  const adapter = useMemo(() => createClipChatAdapter(), []);
   const runtime = useLocalRuntime(adapter);
 
   const handleSelect = useCallback((candidate: ClipCandidate) => {
@@ -92,32 +77,13 @@ function ChatExperience({ status }: { status: DevassetStatus }) {
   return (
     <main className="chat-shell">
       <section className="assistant-surface" aria-label="VideoAI assistant">
-        {notice ? <ChatNoticeBanner notice={notice} /> : null}
-
         <AssistantRuntimeProvider runtime={runtime}>
-          <ThreadPrimitive.Root className="thread-root">
-            <ThreadPrimitive.Viewport className="thread-viewport">
-              <ThreadPrimitive.Messages>
-                {({ message }) => (
-                  <ChatMessage
-                    message={message}
-                    onDeselect={handleDeselect}
-                    onSelect={handleSelect}
-                    selectedIds={selectedIds}
-                  />
-                )}
-              </ThreadPrimitive.Messages>
-              <ThreadPrimitive.Empty>
-                <div className="thread-empty">
-                  Ask for launch moments, reactions, product shots, or other
-                  local clips.
-                </div>
-              </ThreadPrimitive.Empty>
-              <ThreadPrimitive.ViewportFooter>
-                <LocalComposer />
-              </ThreadPrimitive.ViewportFooter>
-            </ThreadPrimitive.Viewport>
-          </ThreadPrimitive.Root>
+          <ClipCandidatesDataUI
+            onDeselect={handleDeselect}
+            onSelect={handleSelect}
+            selectedIds={selectedIds}
+          />
+          <Thread />
         </AssistantRuntimeProvider>
       </section>
 
@@ -129,153 +95,41 @@ function ChatExperience({ status }: { status: DevassetStatus }) {
   );
 }
 
-function LocalComposer() {
-  const aui = useAui();
-  const committedText = useAuiState((state) => state.composer.text);
-  const isInputDisabled = useAuiState(
-    (state) =>
-      state.thread.isDisabled || Boolean(state.composer.dictation?.inputDisabled)
-  );
-  const isSendBlocked = useAuiState(
-    (state) => state.thread.isRunning && !state.thread.capabilities.queue
-  );
-  const [draft, setDraft] = useState("");
-  const canSend = draft.trim().length > 0 && !isInputDisabled && !isSendBlocked;
-
-  useEffect(() => {
-    if (committedText === "") {
-      setDraft("");
-    }
-  }, [committedText]);
-
-  const commitAndSend = useCallback(() => {
-    if (!canSend) {
-      return;
-    }
-
-    aui.composer.setText(draft);
-    aui.composer.send();
-    setDraft("");
-  }, [aui, canSend, draft]);
-
-  const handleSubmit = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      commitAndSend();
-    },
-    [commitAndSend]
-  );
-
-  const handleChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
-    setDraft(event.target.value);
-  }, []);
-
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.nativeEvent.isComposing) {
-        return;
-      }
-
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        commitAndSend();
-      }
-    },
-    [commitAndSend]
-  );
-
-  return (
-    <form className="composer" onSubmit={handleSubmit}>
-      <textarea
-        className="composer-input"
-        disabled={isInputDisabled}
-        name="input"
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        placeholder="Search for launch moments, reactions, product shots..."
-        rows={2}
-        value={draft}
-      />
-      <button className="composer-send" disabled={!canSend} type="submit">
-        Send
-      </button>
-    </form>
-  );
-}
-
-export function ChatMessage({
-  message,
+export function ClipCandidatesDataUI({
   onDeselect,
   onSelect,
   selectedIds
 }: {
-  message: MessageState;
   onDeselect: (clipId: string) => void;
   onSelect: (candidate: ClipCandidate) => void;
   selectedIds: Set<string>;
 }) {
-  const label =
-    message.role === "user"
-      ? "You"
-      : message.role === "assistant"
-        ? "Assistant"
-        : "System";
-
-  return (
-    <MessagePrimitive.Root
-      className={`chat-message chat-message-${message.role}`}
-    >
-      <div className="message-label">{label}</div>
-      <div className="message-body">
-        <MessagePrimitive.Parts>
-          {({ part }) => {
-            if (part.type === "text") {
-              return <MessageTextPart {...part} />;
-            }
-
-            if (part.type === "data" && part.name === "clip-candidates") {
-              return (
-                <ClipCandidatesDataPart
-                  data={part.data}
-                  onDeselect={onDeselect}
-                  onSelect={onSelect}
-                  selectedIds={selectedIds}
-                />
-              );
-            }
-
-            return null;
-          }}
-        </MessagePrimitive.Parts>
-      </div>
-    </MessagePrimitive.Root>
+  const render = useCallback(
+    (props: DataMessagePartProps) => (
+      <ClipCandidatesDataRenderer
+        {...props}
+        onDeselect={onDeselect}
+        onSelect={onSelect}
+        selectedIds={selectedIds}
+      />
+    ),
+    [onDeselect, onSelect, selectedIds]
   );
+
+  useAssistantDataUI({
+    name: "clip-candidates",
+    render
+  });
+
+  return null;
 }
 
-function MessageTextPart({ status, text }: TextMessagePartProps) {
-  const isRunningEmpty = status?.type === "running" && text.length === 0;
-
-  return (
-    <p className="message-text">
-      <MessagePartPrimitive.Text />
-      <MessagePartPrimitive.InProgress>
-        {isRunningEmpty ? (
-          "Searching local clips..."
-        ) : (
-          <span className="message-running-dot" aria-label="Assistant running" />
-        )}
-      </MessagePartPrimitive.InProgress>
-    </p>
-  );
-}
-
-function ClipCandidatesDataPart({
+export function ClipCandidatesDataRenderer({
   data,
   onDeselect,
   onSelect,
   selectedIds
-}: {
-  data: unknown;
+}: DataMessagePartProps & {
   onDeselect: (clipId: string) => void;
   onSelect: (candidate: ClipCandidate) => void;
   selectedIds: Set<string>;
@@ -356,16 +210,18 @@ function ClipCard({
   onSelect: (candidate: ClipCandidate) => void;
   selected: boolean;
 }) {
+  const [isPreviewing, setIsPreviewing] = useState(false);
   const previewUrl = clipPreviewUrl(candidate);
 
   return (
     <article className="clip-card">
       <div className="clip-media">
-        {previewUrl ? (
+        {isPreviewing && previewUrl ? (
           <video
+            autoPlay
             controls
             poster={candidate.thumbnailUrl ?? undefined}
-            preload="metadata"
+            preload="none"
             src={previewUrl}
           />
         ) : candidate.thumbnailUrl ? (
@@ -385,20 +241,34 @@ function ClipCard({
         {candidate.snippet.trim() ? (
           <p className="clip-snippet">{candidate.snippet}</p>
         ) : null}
-        <button
-          className={selected ? "clip-button clip-button-active" : "clip-button"}
-          onClick={() => {
-            if (selected) {
-              onDeselect(candidate.id);
-              return;
+        <div className="clip-actions">
+          {previewUrl ? (
+            <button
+              className="clip-preview-button"
+              data-preview-url={previewUrl}
+              onClick={() => setIsPreviewing(true)}
+              type="button"
+            >
+              {isPreviewing ? "Restart preview" : "Play preview"}
+            </button>
+          ) : null}
+          <button
+            className={
+              selected ? "clip-button clip-button-active" : "clip-button"
             }
+            onClick={() => {
+              if (selected) {
+                onDeselect(candidate.id);
+                return;
+              }
 
-            onSelect(candidate);
-          }}
-          type="button"
-        >
-          {selected ? "Deselect" : "Select"}
-        </button>
+              onSelect(candidate);
+            }}
+            type="button"
+          >
+            {selected ? "Deselect" : "Select"}
+          </button>
+        </div>
       </div>
     </article>
   );
@@ -437,22 +307,6 @@ function SelectedClipsPanel({
         </ul>
       )}
     </aside>
-  );
-}
-
-function ChatNoticeBanner({ notice }: { notice: ChatNotice }) {
-  return (
-    <div
-      className={notice.type === "error" ? "chat-notice error" : "chat-notice"}
-      role={notice.type === "error" ? "alert" : "status"}
-    >
-      <strong>
-        {notice.type === "devassets"
-          ? `Devassets ${notice.devassets.state}`
-          : "Chat unavailable"}
-      </strong>
-      <span>{notice.message}</span>
-    </div>
   );
 }
 
