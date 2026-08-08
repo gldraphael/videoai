@@ -14,7 +14,7 @@ Prerequisites:
 - Optional for host-side development: pnpm 11.18.0 and Go 1.26.2
 
 The compose file provides local defaults. Copy `.env.example` to `.env` only if
-you want to override ports, database credentials, or generated-data paths.
+you want to override ports or generated-data paths.
 
 Start the full local stack from the repository root:
 
@@ -36,13 +36,11 @@ Useful local URLs:
 
 - Web app: `http://videoai.localhost:8080`
 - API health: `http://api.videoai.localhost:8080/health`
-- API database smoke check: `http://api.videoai.localhost:8080/health/db`
 - API devasset readiness: `http://api.videoai.localhost:8080/devassets/status`
 - Render health: `http://render.videoai.localhost:8080/health`
 
 Traefik owns the host HTTP port, which defaults to `8080`. The webapp, API, and
-render service ports are only exposed inside the compose network. PostgreSQL is
-also available on `localhost:5432` for local database tooling.
+render service ports are only exposed inside the compose network.
 
 For host-side checks:
 
@@ -144,13 +142,13 @@ Generated local data
 
 API
   |-- reads generated devasset data for status, clip search, thumbnails, previews
-  |-- checks PostgreSQL for database health and bootstrap
   `-- uses the render service boundary for rendered-video workflows
 ```
 
-The PostgreSQL container runs SQL files from [`db/init/`](db/init/) when its
-named data volume is first created. See [`db/README.md`](db/README.md) for local
-database notes.
+Generated files under `var/devassets`, `var/thumbnails`, and `var/renders` are
+the current local data path. Database-backed persistence for conversations,
+render jobs, larger catalogs, or retrieval is deferred until a future change has
+a concrete data model.
 
 ## How it works
 
@@ -175,6 +173,5 @@ The render service is the Go boundary for turning future edit plans into
 rendered video outputs. It shares the same generated local data directories as
 the API so render inputs and outputs stay visible in the workspace.
 
-PostgreSQL and Traefik support the local development environment. PostgreSQL
-provides the database used by the API, and Traefik gives the stack stable local
-hostnames that match how the browser talks to the services.
+Traefik supports the local development environment by giving the stack stable
+local hostnames that match how the browser talks to the services.

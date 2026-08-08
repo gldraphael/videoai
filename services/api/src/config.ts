@@ -1,5 +1,4 @@
 export type ApiConfig = {
-  databaseUrl: string;
   devassetLibraryPath: string;
   devassetRoot: string;
   devassetStatusPath: string;
@@ -27,8 +26,6 @@ export function readConfig(): ApiConfig {
   const thumbnailsDir = process.env.THUMBNAILS_DIR ?? "var/thumbnails";
 
   return {
-    databaseUrl:
-      process.env.DATABASE_URL ?? "postgres://videoai:videoai@localhost:5432/videoai",
     devassetLibraryPath:
       process.env.DEVASSET_LIBRARY_PATH ?? `${devassetsDir}/library.json`,
     devassetRoot: devassetsDir,

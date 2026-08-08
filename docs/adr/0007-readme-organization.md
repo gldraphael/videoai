@@ -18,7 +18,7 @@ The local prototype now has several documentation surfaces:
 
 - root `README.md`
 - service-owned README files such as `services/api/README.md`
-- domain folders such as `devassets/`, `var/`, and `db/`
+- domain folders such as `devassets/` and `var/`
 - ADRs for durable architectural decisions
 - OpenSpec changes for planned work and task tracking
 
@@ -59,8 +59,8 @@ seed flow.
 
 The architecture section should stay high-level and Markdown-native. It should
 show the browser, Traefik, webapp, API, seed service, render service,
-PostgreSQL, and generated local data without becoming a detailed sequence
-diagram or service contract.
+generated local data, and any explicitly deferred storage decisions without
+becoming a detailed sequence diagram or service contract.
 
 The "How it works" section should explain the system in plain language for a
 new or lightly technical reader. It should describe how the seed service hides
@@ -77,7 +77,6 @@ Keep domain folder READMEs supplemental:
 - `devassets/README.md` should point to the root catalog overview and document
   directory conventions that are specific to `devassets/`.
 - `var/README.md` owns generated runtime layout details.
-- `db/README.md` owns local database initialization notes.
 
 Do not create `tools/seed/README.md` solely to document `devassets/catalog.yaml`.
 Catalog configuration belongs in the root README because changing the catalog

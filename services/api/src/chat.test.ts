@@ -3,7 +3,6 @@ import test from "node:test";
 import { createApiApp } from "./app.js";
 import type { ClipSearchService } from "./clips.js";
 import type { ApiConfig } from "./config.js";
-import type { Database } from "./db.js";
 import {
   errorDevassetStatus,
   missingDevassetStatus,
@@ -14,7 +13,6 @@ test("POST /chat validates request text and result limits before searching", asy
   let searched = false;
   const app = createApiApp({
     config: apiConfigFixture(),
-    database: databaseThatMustNotBeUsed(),
     clipSearch: {
       async search() {
         searched = true;
@@ -54,7 +52,6 @@ test("POST /chat validates request text and result limits before searching", asy
 test("POST /chat returns search-backed assistant text and clip candidates", async () => {
   const app = createApiApp({
     config: apiConfigFixture(),
-    database: databaseThatMustNotBeUsed(),
     clipSearch: clipSearchFixture({
       expectedQuery: "launch product demo",
       expectedLimit: 2
@@ -100,14 +97,15 @@ test("POST /chat returns search-backed assistant text and clip candidates", asyn
 });
 
 test("POST /chat does not require PostgreSQL or model-provider credentials", async () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
   const previousOpenAiKey = process.env.OPENAI_API_KEY;
   const previousGeminiKey = process.env.GEMINI_API_KEY;
+  delete process.env.DATABASE_URL;
   delete process.env.OPENAI_API_KEY;
   delete process.env.GEMINI_API_KEY;
 
   const app = createApiApp({
     config: apiConfigFixture(),
-    database: databaseThatMustNotBeUsed(),
     clipSearch: clipSearchFixture({
       expectedQuery: "product demo",
       expectedLimit: 8
@@ -127,6 +125,7 @@ test("POST /chat does not require PostgreSQL or model-provider credentials", asy
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().content[1].candidates.length, 1);
   } finally {
+    restoreOptionalEnv("DATABASE_URL", previousDatabaseUrl);
     restoreOptionalEnv("OPENAI_API_KEY", previousOpenAiKey);
     restoreOptionalEnv("GEMINI_API_KEY", previousGeminiKey);
     await app.close();
@@ -141,7 +140,6 @@ test("POST /chat preserves devassets-not-ready states from clip search", async (
   ]) {
     const app = createApiApp({
       config: apiConfigFixture(),
-      database: databaseThatMustNotBeUsed(),
       clipSearch: {
         async search() {
           return {
@@ -213,18 +211,8 @@ function restoreOptionalEnv(name: string, value: string | undefined): void {
   process.env[name] = value;
 }
 
-function databaseThatMustNotBeUsed(): Database {
-  return {
-    async check() {
-      throw new Error("database check should not run during chat");
-    },
-    async close() {}
-  };
-}
-
 function apiConfigFixture(overrides: Partial<ApiConfig> = {}): ApiConfig {
   return {
-    databaseUrl: "postgres://example.invalid/videoai",
     devassetLibraryPath: "/tmp/videoai/library.json",
     devassetRoot: "/tmp/videoai/devassets",
     devassetStatusPath: "/tmp/videoai/.seed/status.json",

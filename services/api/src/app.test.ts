@@ -6,7 +6,6 @@ import test from "node:test";
 import { createApiApp } from "./app.js";
 import { ClipIndexCache, type ClipSearchConfig } from "./clips.js";
 import type { ApiConfig } from "./config.js";
-import type { Database } from "./db.js";
 import {
   errorDevassetStatus,
   mediaLibraryFixture,
@@ -20,7 +19,6 @@ test("POST /clips/search returns ranked clip results with required fields", asyn
   const fixture = await createReadyFileFixture();
   const app = createApiApp({
     config: fixture.apiConfig,
-    database: databaseThatMustNotBeUsed(),
     logger: false
   });
 
@@ -61,7 +59,6 @@ test("POST /clips/search rejects invalid requests without querying the index", a
   let searched = false;
   const app = createApiApp({
     config: apiConfigFixture(),
-    database: databaseThatMustNotBeUsed(),
     clipSearch: {
       async search() {
         searched = true;
@@ -106,7 +103,6 @@ test("POST /clips/search returns non-ready devasset states", async () => {
   ]) {
     const app = createApiApp({
       config: apiConfigFixture(),
-      database: databaseThatMustNotBeUsed(),
       clipSearch: {
         async search() {
           return {
@@ -141,7 +137,6 @@ test("clip search route does not require PostgreSQL when devassets are ready", a
   const fixture = await createReadyFileFixture();
   const app = createApiApp({
     config: fixture.apiConfig,
-    database: databaseThatMustNotBeUsed(),
     clipSearch: new ClipIndexCache(fixture.clipConfig),
     logger: false
   });
@@ -163,18 +158,79 @@ test("clip search route does not require PostgreSQL when devassets are ready", a
   }
 });
 
-function databaseThatMustNotBeUsed(): Database {
-  return {
-    async check() {
-      throw new Error("database check should not run during clip search");
-    },
-    async close() {}
-  };
-}
+test("default API routes work without DATABASE_URL", async () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+
+  const fixture = await createReadyFileFixture();
+  const app = createApiApp({
+    config: fixture.apiConfig,
+    logger: false
+  });
+
+  try {
+    const health = await app.inject({
+      method: "GET",
+      url: "/health"
+    });
+    assert.equal(health.statusCode, 200);
+    assert.equal(health.json().status, "ok");
+
+    const devassets = await app.inject({
+      method: "GET",
+      url: "/devassets/status"
+    });
+    assert.equal(devassets.statusCode, 200);
+    assert.equal(devassets.json().state, "ready");
+
+    const clips = await app.inject({
+      method: "POST",
+      url: "/clips/search",
+      payload: {
+        query: "product demo"
+      }
+    });
+    assert.equal(clips.statusCode, 200);
+    assert.ok(clips.json().results.length > 0);
+
+    const chat = await app.inject({
+      method: "POST",
+      url: "/chat",
+      payload: {
+        message: "product demo"
+      }
+    });
+    assert.equal(chat.statusCode, 200);
+    assert.equal(chat.json().content[1].type, "clip-candidates");
+
+    const thumbnail = await app.inject({
+      method: "GET",
+      url: "/media/thumbnails/launch-demo.jpg"
+    });
+    assert.equal(thumbnail.statusCode, 200);
+    assert.match(thumbnail.headers["content-type"] as string, /image\/jpeg/);
+
+    const preview = await app.inject({
+      method: "GET",
+      url: "/media/devassets/assets/launch-demo/test/source.mp4"
+    });
+    assert.equal(preview.statusCode, 200);
+    assert.match(preview.headers["content-type"] as string, /video\/mp4/);
+
+    const dbHealth = await app.inject({
+      method: "GET",
+      url: "/health/db"
+    });
+    assert.equal(dbHealth.statusCode, 404);
+  } finally {
+    restoreOptionalEnv("DATABASE_URL", previousDatabaseUrl);
+    await app.close();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
 
 function apiConfigFixture(overrides: Partial<ApiConfig> = {}): ApiConfig {
   return {
-    databaseUrl: "postgres://example.invalid/videoai",
     devassetLibraryPath: "/tmp/videoai/library.json",
     devassetRoot: "/tmp/videoai/devassets",
     devassetStatusPath: "/tmp/videoai/.seed/status.json",
@@ -206,6 +262,12 @@ async function createReadyFileFixture(): Promise<{
   await mkdir(path.dirname(transcriptPath), { recursive: true });
   await mkdir(path.dirname(statusPath), { recursive: true });
   await mkdir(thumbnailRoot, { recursive: true });
+  await writeFile(path.join(thumbnailRoot, "launch-demo.jpg"), "jpg-data", "utf8");
+  await writeFile(
+    path.join(devassetRoot, "assets", "launch-demo", "test", "source.mp4"),
+    "abcdef",
+    "utf8"
+  );
   await writeJson(transcriptPath, usableWhisperTranscript());
   await writeJson(libraryPath, mediaLibraryFixture());
   await writeJson(statusPath, readyDevassetStatus());
@@ -232,4 +294,13 @@ async function createReadyFileFixture(): Promise<{
 async function writeJson(filePath: string, value: unknown): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function restoreOptionalEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
 }

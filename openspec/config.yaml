@@ -6,7 +6,7 @@ context: |
 
   1. Load sample assets from devassets/catalog.yaml and devassets/media/.
   2. Let the user describe a desired video in a chat interface.
-  3. Search seeded clips with PostgreSQL full-text search.
+  3. Search seeded clips from generated local files with in-memory retrieval.
   4. Let the user select candidate clips.
   5. Generate a structured EditPlan JSON from the prompt and selected clips.
   6. Deterministically convert the EditPlan into rich vspec YAML.
@@ -23,9 +23,9 @@ context: |
     output settings.
   - Use devassets, not fixtures, for local sample media and the seed catalog.
   - Use a TypeScript seed CLI to probe media, transcribe where useful, chunk
-    transcripts, and upsert searchable assets/clips into PostgreSQL.
-  - Use PostgreSQL built-in full-text search with tsvector,
-    websearch_to_tsquery, and ranking.
+    transcripts, and write generated local media state under var/.
+  - Use in-memory retrieval over generated devasset library and transcript
+    files for the current local demo.
   - Keep a clean AI boundary: the LLM produces validated EditPlan JSON; the
     backend validates IDs/timestamps/assets and converts to vspec.
   - Put vspec validation/rendering behind a Go service using
@@ -42,12 +42,13 @@ context: |
   Intended services and stack:
   - web: React + TypeScript, Vite, assistant-ui, TanStack Query, Tailwind or
     shadcn-style components.
-  - api: Node.js + TypeScript, Fastify, Zod, Drizzle ORM or Kysely, pg,
+  - api: Node.js + TypeScript, Fastify, validation, in-memory retrieval,
     OpenAI/AI SDK integration.
   - seed: TypeScript CLI using tsx, ffprobe/FFmpeg, OpenAI transcription or an
     optional local Whisper-compatible tool.
   - render: Go service using github.com/gldraphael/vspec plus FFmpeg/ffprobe.
-  - postgres: PostgreSQL with built-in full-text search.
+  - Database-backed persistence is deferred until conversations, render jobs,
+    larger catalogs, or retrieval requirements need a concrete data model.
 
   ADR 0001 captures the high-level direction. It is not a complete
   implementation specification. Detailed phase scope, APIs, schemas, prompts,
@@ -61,7 +62,7 @@ rules:
     - Include non-goals when a change could otherwise expand into auth, uploads, embeddings, or timeline editing.
   design:
     - Preserve the EditPlan-to-vspec boundary; do not trust raw model-generated vspec as the source of truth.
-    - Prefer simple Postgres full-text retrieval unless a later proposal explicitly changes that decision.
+    - Prefer generated files under var/ and in-memory retrieval for the current local demo; introduce database-backed persistence only through a later proposal with a concrete data model.
     - Prefer Podman-compatible local development instructions and avoid Docker-only assumptions.
     - Keep vspec feature usage rich enough to demonstrate polished rendered output.
   tasks:

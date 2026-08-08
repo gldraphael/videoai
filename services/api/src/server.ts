@@ -1,13 +1,10 @@
-import { createDatabase } from "./db.js";
 import { readConfig } from "./config.js";
 import { createApiApp } from "./app.js";
 
 const config = readConfig();
-const database = createDatabase(config.databaseUrl);
-const app = createApiApp({ config, database });
+const app = createApiApp({ config });
 
 async function shutdown() {
-  await database.close();
   await app.close();
 }
 

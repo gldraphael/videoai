@@ -5,7 +5,6 @@ import path from "node:path";
 import test from "node:test";
 import { createApiApp } from "./app.js";
 import type { ApiConfig } from "./config.js";
-import type { Database } from "./db.js";
 import { generatedMediaReferenceToUrl } from "./media.js";
 
 test("maps generated media references to browser media URLs", () => {
@@ -28,7 +27,6 @@ test("serves constrained thumbnails and preview video ranges", async () => {
   const fixture = await createMediaFixture();
   const app = createApiApp({
     config: fixture.apiConfig,
-    database: databaseThatMustNotBeUsed(),
     logger: false
   });
 
@@ -63,7 +61,6 @@ test("rejects unsafe media paths and unsupported generated artifacts", async () 
   const fixture = await createMediaFixture();
   const app = createApiApp({
     config: fixture.apiConfig,
-    database: databaseThatMustNotBeUsed(),
     logger: false
   });
 
@@ -94,7 +91,6 @@ test("missing media returns not found while health checks remain available", asy
   const fixture = await createMediaFixture();
   const app = createApiApp({
     config: fixture.apiConfig,
-    database: databaseThatMustNotBeUsed(),
     logger: false
   });
 
@@ -164,18 +160,8 @@ async function writeText(filePath: string, value: string): Promise<void> {
   await writeFile(filePath, value, "utf8");
 }
 
-function databaseThatMustNotBeUsed(): Database {
-  return {
-    async check() {
-      throw new Error("database check should not run during media requests");
-    },
-    async close() {}
-  };
-}
-
 function apiConfigFixture(overrides: Partial<ApiConfig> = {}): ApiConfig {
   return {
-    databaseUrl: "postgres://example.invalid/videoai",
     devassetLibraryPath: "/tmp/videoai/library.json",
     devassetRoot: "/tmp/videoai/devassets",
     devassetStatusPath: "/tmp/videoai/.seed/status.json",

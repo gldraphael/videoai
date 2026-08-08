@@ -23,7 +23,6 @@ pnpm --filter @videoai/api build
 The compose stack sets these API environment variables:
 
 - `API_PORT`
-- `DATABASE_URL`
 - `DEVASSETS_DIR`
 - `RENDERS_DIR`
 - `THUMBNAILS_DIR`
@@ -32,15 +31,17 @@ The compose stack sets these API environment variables:
 
 ```text
 GET /health
-GET /health/db
 GET /devassets/status
 ```
 
-`GET /health` returns the API service health. `GET /health/db` checks
-PostgreSQL connectivity and reports the schema version from the initialized
-database. `GET /devassets/status` returns the generated devasset state consumed
-by the webapp. Devassets are ready only after the seed flow has written both the
-seed status file and `var/devassets/library.json`.
+`GET /health` returns the API service health. `GET /devassets/status` returns
+the generated devasset state consumed by the webapp. Devassets are ready only
+after the seed flow has written both the seed status file and
+`var/devassets/library.json`.
+
+The API starts without `DATABASE_URL` or PostgreSQL connectivity. No default
+health route queries a database; database-backed persistence is deferred until a
+future change has a concrete data model.
 
 ## Clip search
 

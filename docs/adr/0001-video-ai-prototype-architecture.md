@@ -2,7 +2,12 @@
 
 ## Status
 
-Superseded by [ADR 0004: Lean Chat-First Video AI Prototype Architecture](0004-lean-chat-first-video-ai-prototype-architecture.md).
+Superseded by [ADR 0004: Lean Chat-First Video AI Prototype Architecture](0004-lean-chat-first-video-ai-prototype-architecture.md)
+and [ADR 0009: Remove PostgreSQL From Local Demo](0009-remove-postgres-from-local-demo.md).
+
+PostgreSQL details below are historical. The current local demo uses generated
+files under `var/` plus in-memory retrieval; database-backed persistence is a
+deferred future decision.
 
 ## Context
 

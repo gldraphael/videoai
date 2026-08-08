@@ -1,6 +1,5 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import type { ApiConfig } from "./config.js";
-import type { Database } from "./db.js";
 import { readDevassetStatus } from "./devassets.js";
 import { ClipAssistantChatService, validateChatRequest } from "./chat.js";
 import {
@@ -16,7 +15,6 @@ import {
 
 export type CreateApiAppOptions = {
   config: ApiConfig;
-  database: Database;
   clipSearch?: ClipSearchService;
   logger?: boolean;
 };
@@ -37,17 +35,6 @@ export function createApiApp(options: CreateApiAppOptions): FastifyInstance {
     service: "api",
     status: "ok"
   }));
-
-  app.get("/health/db", async () => {
-    const check = await options.database.check();
-
-    return {
-      service: "api",
-      status: "ok",
-      database: check.database,
-      schemaVersion: check.schemaVersion
-    };
-  });
 
   app.get("/devassets/status", async () =>
     readDevassetStatus({

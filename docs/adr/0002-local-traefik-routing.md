@@ -16,8 +16,6 @@ For local development, we want a single public HTTP port and predictable hostnam
 - Webapp: `http://videoai.localhost:8080`
 - Other HTTP services: `http://<service>.videoai.localhost:8080`
 
-PostgreSQL is not an HTTP service and should remain reachable through its normal
-database port for local tooling.
 
 ## Decision
 
@@ -37,8 +35,7 @@ independent of a rootless Podman API socket and makes the local routing contract
 visible in source control.
 
 The app services expose their HTTP ports only inside the compose network.
-Traefik is the only host-published HTTP entrypoint. PostgreSQL remains published
-on `localhost:5432`.
+Traefik is the only host-published HTTP entrypoint.
 
 ## Consequences
 
