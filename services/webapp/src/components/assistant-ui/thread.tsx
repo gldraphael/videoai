@@ -120,47 +120,54 @@ const ThreadRoot: FC<{ isEmpty: boolean }> = ({ isEmpty }) => {
         ["--composer-padding" as string]: "8px",
       }}
     >
-      <ThreadPrimitive.Viewport
-        turnAnchor="top"
-        data-slot="aui_thread-viewport"
-        className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
-      >
-        <div
-          className={cn(
-            "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4",
-            isEmpty && "justify-center",
-          )}
+      <ThreadPrimitive.ViewportProvider options={{ turnAnchor: "top" }}>
+        <ThreadPrimitive.Viewport
+          data-slot="aui_thread-viewport"
+          className="relative flex flex-1 flex-col overflow-x-auto overflow-y-scroll scroll-smooth"
         >
-          <AuiIf condition={isNewChatView}>
-            <Welcome />
-          </AuiIf>
-
           <div
-            data-slot="aui_message-group"
-            className="mb-14 flex flex-col gap-y-6 empty:hidden"
-          >
-            <ThreadPrimitive.Messages>
-              {() => <ThreadMessage />}
-            </ThreadPrimitive.Messages>
-          </div>
-
-          <ThreadPrimitive.ViewportFooter
             className={cn(
-              "aui-thread-viewport-footer bg-background flex flex-col gap-4 overflow-visible pb-4 md:pb-6",
-              !isEmpty &&
-                "sticky bottom-0 mt-auto rounded-t-(--composer-radius)",
+              "mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 pt-4",
+              isEmpty && "justify-center",
             )}
           >
-            <ThreadScrollToBottom />
-            <ThreadFollowupSuggestions />
-            <Composer />
-            <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
-              <ThreadSuggestions />
+            <AuiIf condition={isNewChatView}>
+              <Welcome />
             </AuiIf>
-          </ThreadPrimitive.ViewportFooter>
-        </div>
-      </ThreadPrimitive.Viewport>
+
+            <div
+              data-slot="aui_message-group"
+              className="mb-14 flex flex-col gap-y-6 empty:hidden"
+            >
+              <ThreadPrimitive.Messages>
+                {() => <ThreadMessage />}
+              </ThreadPrimitive.Messages>
+            </div>
+
+            {isEmpty && <ThreadFooter isEmpty />}
+          </div>
+        </ThreadPrimitive.Viewport>
+        {!isEmpty && <ThreadFooter />}
+      </ThreadPrimitive.ViewportProvider>
     </ThreadPrimitive.Root>
+  );
+};
+
+const ThreadFooter: FC<{ isEmpty?: boolean }> = ({ isEmpty = false }) => {
+  return (
+    <ThreadPrimitive.ViewportFooter
+      className={cn(
+        "aui-thread-viewport-footer bg-background flex shrink-0 flex-col gap-4 overflow-visible pb-4 md:pb-6",
+        !isEmpty && "mx-auto w-full max-w-(--thread-max-width) px-4",
+      )}
+    >
+      <ThreadScrollToBottom />
+      <ThreadFollowupSuggestions />
+      <Composer />
+      <AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
+        <ThreadSuggestions />
+      </AuiIf>
+    </ThreadPrimitive.ViewportFooter>
   );
 };
 

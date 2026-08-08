@@ -1,9 +1,8 @@
 import {
   AssistantRuntimeProvider,
-  useAssistantDataUI,
-  useLocalRuntime,
-  type DataMessagePartProps
+  useLocalRuntime
 } from "@assistant-ui/react";
+import { MinusIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -14,20 +13,24 @@ import {
 } from "react";
 import { Thread } from "@/components/assistant-ui/thread";
 import {
+  appendOutputResultGroup,
   appModeForDevassetStatus,
-  clipPreviewUrl,
   createClipChatAdapter,
-  deselectClip,
+  excludeOutputClip,
   formatScore,
   formatTimeRange,
-  parseSelectedClips,
-  selectClip,
+  includeOutputClip,
+  outputWorkspaceStorageKey,
+  removeOutputClip,
+  removeOutputGroup,
+  restoreOutputWorkspaceState,
   selectedClipsStorageKey,
-  serializeSelectedClips,
-  type ClipCandidate,
-  type ClipCandidatesData,
+  serializeOutputWorkspaceState,
   type DevassetStatus,
-  type SelectedClip
+  type IncludedClip,
+  type OutputClip,
+  type OutputResultGroup,
+  type OutputWorkspaceState
 } from "./chatModel";
 
 const setupPollMs = 2500;
@@ -58,255 +61,298 @@ export function AppView({ status }: { status: DevassetStatus }) {
 }
 
 function ChatExperience() {
-  const [selectedClips, setSelectedClips] = useSessionSelectedClips();
-  const selectedIds = useMemo(
-    () => new Set(selectedClips.map((clip) => clip.id)),
-    [selectedClips]
+  const [workspace, setWorkspace] = useSessionOutputWorkspace();
+  const includedIds = useMemo(
+    () => new Set(workspace.includedClips.map((clip) => clip.id)),
+    [workspace.includedClips]
   );
-  const adapter = useMemo(() => createClipChatAdapter(), []);
+
+  const handleOutputGroup = useCallback(
+    (group: OutputResultGroup) => {
+      setWorkspace((current) => appendOutputResultGroup(current, group));
+    },
+    [setWorkspace]
+  );
+
+  const adapter = useMemo(
+    () => createClipChatAdapter({ onOutputGroup: handleOutputGroup }),
+    [handleOutputGroup]
+  );
   const runtime = useLocalRuntime(adapter);
 
-  const handleSelect = useCallback((candidate: ClipCandidate) => {
-    setSelectedClips((current) => selectClip(current, candidate));
-  }, [setSelectedClips]);
+  const handleInclude = useCallback(
+    (clip: OutputClip) => {
+      setWorkspace((current) => includeOutputClip(current, clip));
+    },
+    [setWorkspace]
+  );
 
-  const handleDeselect = useCallback((clipId: string) => {
-    setSelectedClips((current) => deselectClip(current, clipId));
-  }, [setSelectedClips]);
+  const handleExclude = useCallback(
+    (clipId: string) => {
+      setWorkspace((current) => excludeOutputClip(current, clipId));
+    },
+    [setWorkspace]
+  );
+
+  const handleRemoveClip = useCallback(
+    (groupId: string, clipId: string) => {
+      setWorkspace((current) => removeOutputClip(current, groupId, clipId));
+    },
+    [setWorkspace]
+  );
+
+  const handleRemoveGroup = useCallback(
+    (groupId: string) => {
+      setWorkspace((current) => removeOutputGroup(current, groupId));
+    },
+    [setWorkspace]
+  );
 
   return (
     <main className="chat-shell">
       <section className="assistant-surface" aria-label="VideoAI assistant">
         <AssistantRuntimeProvider runtime={runtime}>
-          <ClipCandidatesDataUI
-            onDeselect={handleDeselect}
-            onSelect={handleSelect}
-            selectedIds={selectedIds}
-          />
           <Thread />
         </AssistantRuntimeProvider>
       </section>
 
-      <SelectedClipsPanel
-        onDeselect={handleDeselect}
-        selectedClips={selectedClips}
+      <OutputWorkspacePane
+        includedIds={includedIds}
+        onExclude={handleExclude}
+        onInclude={handleInclude}
+        onRemoveClip={handleRemoveClip}
+        onRemoveGroup={handleRemoveGroup}
+        workspace={workspace}
       />
     </main>
   );
 }
 
-export function ClipCandidatesDataUI({
-  onDeselect,
-  onSelect,
-  selectedIds
+export function OutputWorkspacePane({
+  includedIds,
+  onExclude,
+  onInclude,
+  onRemoveClip,
+  onRemoveGroup,
+  workspace
 }: {
-  onDeselect: (clipId: string) => void;
-  onSelect: (candidate: ClipCandidate) => void;
-  selectedIds: Set<string>;
+  includedIds: Set<string>;
+  onExclude: (clipId: string) => void;
+  onInclude: (clip: OutputClip) => void;
+  onRemoveClip: (groupId: string, clipId: string) => void;
+  onRemoveGroup: (groupId: string) => void;
+  workspace: OutputWorkspaceState;
 }) {
-  const render = useCallback(
-    (props: DataMessagePartProps) => (
-      <ClipCandidatesDataRenderer
-        {...props}
-        onDeselect={onDeselect}
-        onSelect={onSelect}
-        selectedIds={selectedIds}
+  const totalClips = workspace.groups.reduce(
+    (total, group) => total + group.clips.length,
+    0
+  );
+
+  return (
+    <aside className="output-workspace" aria-label="Output workspace">
+      <IncludedContext
+        includedClips={workspace.includedClips}
+        onExclude={onExclude}
       />
-    ),
-    [onDeselect, onSelect, selectedIds]
-  );
 
-  useAssistantDataUI({
-    name: "clip-candidates",
-    render
-  });
+      <section className="output-results" aria-label="Clip outputs">
+        <div className="output-pane-header">
+          <div>
+            <h2>Output workspace</h2>
+            <p>{pluralize(totalClips, "clip")} across this session</p>
+          </div>
+          <span>{workspace.groups.length}</span>
+        </div>
 
-  return null;
-}
-
-export function ClipCandidatesDataRenderer({
-  data,
-  onDeselect,
-  onSelect,
-  selectedIds
-}: DataMessagePartProps & {
-  onDeselect: (clipId: string) => void;
-  onSelect: (candidate: ClipCandidate) => void;
-  selectedIds: Set<string>;
-}) {
-  if (!isClipCandidatesData(data)) {
-    return null;
-  }
-
-  return (
-    <ClipCandidatesPart
-      data={data}
-      onDeselect={onDeselect}
-      onSelect={onSelect}
-      selectedIds={selectedIds}
-    />
-  );
-}
-
-export function isClipCandidatesData(value: unknown): value is ClipCandidatesData {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidateData = value as ClipCandidatesData;
-  return (
-    typeof candidateData.query === "string" &&
-    Array.isArray(candidateData.candidates)
-  );
-}
-
-function ClipCandidatesPart({
-  data,
-  onDeselect,
-  onSelect,
-  selectedIds
-}: {
-  data: ClipCandidatesData;
-  onDeselect: (clipId: string) => void;
-  onSelect: (candidate: ClipCandidate) => void;
-  selectedIds: Set<string>;
-}) {
-  const candidates: ClipCandidate[] = data.candidates;
-
-  if (candidates.length === 0) {
-    return (
-      <div className="clip-empty" data-testid="clip-empty">
-        No clips returned for this request.
-      </div>
-    );
-  }
-
-  return (
-    <div className="clip-results" aria-label={`Clip results for ${data.query}`}>
-      {candidates.map((candidate) => {
-        const selected = selectedIds.has(candidate.id);
-        return (
-          <ClipCard
-            candidate={candidate}
-            key={candidate.id}
-            onDeselect={onDeselect}
-            onSelect={onSelect}
-            selected={selected}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function ClipCard({
-  candidate,
-  onDeselect,
-  onSelect,
-  selected
-}: {
-  candidate: ClipCandidate;
-  onDeselect: (clipId: string) => void;
-  onSelect: (candidate: ClipCandidate) => void;
-  selected: boolean;
-}) {
-  const [isPreviewing, setIsPreviewing] = useState(false);
-  const previewUrl = clipPreviewUrl(candidate);
-
-  return (
-    <article className="clip-card">
-      <div className="clip-media">
-        {isPreviewing && previewUrl ? (
-          <video
-            autoPlay
-            controls
-            poster={candidate.thumbnailUrl ?? undefined}
-            preload="none"
-            src={previewUrl}
-          />
-        ) : candidate.thumbnailUrl ? (
-          <img alt="" src={candidate.thumbnailUrl} />
+        {workspace.groups.length === 0 ? (
+          <p className="output-empty">No clip outputs yet.</p>
         ) : (
-          <div className="clip-media-missing" aria-hidden="true" />
+          <div className="output-group-list">
+            {workspace.groups.map((group) => (
+              <OutputResultGroupCard
+                group={group}
+                includedIds={includedIds}
+                key={group.id}
+                onExclude={onExclude}
+                onInclude={onInclude}
+                onRemoveClip={onRemoveClip}
+                onRemoveGroup={onRemoveGroup}
+              />
+            ))}
+          </div>
         )}
-      </div>
-      <div className="clip-detail">
-        <div className="clip-heading">
-          <h2>{candidate.title}</h2>
-          <span>{formatScore(candidate.score)}</span>
-        </div>
-        <p className="clip-time">
-          {formatTimeRange(candidate.startMs, candidate.endMs)}
-        </p>
-        {candidate.snippet.trim() ? (
-          <p className="clip-snippet">{candidate.snippet}</p>
-        ) : null}
-        <div className="clip-actions">
-          {previewUrl ? (
-            <button
-              className="clip-preview-button"
-              data-preview-url={previewUrl}
-              onClick={() => setIsPreviewing(true)}
-              type="button"
-            >
-              {isPreviewing ? "Restart preview" : "Play preview"}
-            </button>
-          ) : null}
-          <button
-            className={
-              selected ? "clip-button clip-button-active" : "clip-button"
-            }
-            onClick={() => {
-              if (selected) {
-                onDeselect(candidate.id);
-                return;
-              }
-
-              onSelect(candidate);
-            }}
-            type="button"
-          >
-            {selected ? "Deselect" : "Select"}
-          </button>
-        </div>
-      </div>
-    </article>
+      </section>
+    </aside>
   );
 }
 
-function SelectedClipsPanel({
-  onDeselect,
-  selectedClips
+function IncludedContext({
+  includedClips,
+  onExclude
 }: {
-  onDeselect: (clipId: string) => void;
-  selectedClips: SelectedClip[];
+  includedClips: IncludedClip[];
+  onExclude: (clipId: string) => void;
 }) {
   return (
-    <aside className="selected-panel" aria-label="Selected clips">
-      <div className="selected-panel-header">
-        <h2>Selected clips</h2>
-        <span>{selectedClips.length}</span>
+    <section className="included-context" aria-label="Included context">
+      <div className="output-pane-header">
+        <div>
+          <h2>Included context</h2>
+          <p>Carried into your next request</p>
+        </div>
+        <span>{includedClips.length}</span>
       </div>
 
-      {selectedClips.length === 0 ? (
-        <p className="selected-empty">No clips selected.</p>
+      {includedClips.length === 0 ? (
+        <p className="output-empty">No clips included.</p>
       ) : (
-        <ul className="selected-list">
-          {selectedClips.map((clip) => (
-            <li className="selected-item" key={clip.id}>
-              {clip.thumbnailUrl ? <img alt="" src={clip.thumbnailUrl} /> : null}
+        <ul className="included-list">
+          {includedClips.map((clip) => (
+            <li className="included-item" key={clip.id}>
+              <div className="included-thumb">
+                {clip.thumbnailUrl ? (
+                  <img alt="" src={clip.thumbnailUrl} />
+                ) : (
+                  <span>No thumbnail</span>
+                )}
+              </div>
               <div>
                 <strong>{clip.title}</strong>
                 <span>{formatTimeRange(clip.startMs, clip.endMs)}</span>
               </div>
-              <button onClick={() => onDeselect(clip.id)} type="button">
-                Remove
+              <button
+                aria-label={`Exclude ${clip.title}`}
+                className="icon-button"
+                onClick={() => onExclude(clip.id)}
+                type="button"
+              >
+                <XIcon aria-hidden="true" size={16} />
               </button>
             </li>
           ))}
         </ul>
       )}
-    </aside>
+    </section>
+  );
+}
+
+function OutputResultGroupCard({
+  group,
+  includedIds,
+  onExclude,
+  onInclude,
+  onRemoveClip,
+  onRemoveGroup
+}: {
+  group: OutputResultGroup;
+  includedIds: Set<string>;
+  onExclude: (clipId: string) => void;
+  onInclude: (clip: OutputClip) => void;
+  onRemoveClip: (groupId: string, clipId: string) => void;
+  onRemoveGroup: (groupId: string) => void;
+}) {
+  const label = group.query.trim() || "Clip request";
+
+  return (
+    <section className="output-group" aria-label={`Results for ${label}`}>
+      <div className="output-group-header">
+        <div>
+          <h3>{label}</h3>
+          <span>{pluralize(group.clips.length, "clip")}</span>
+        </div>
+        <button
+          aria-label={`Remove result group for ${label}`}
+          className="icon-button"
+          onClick={() => onRemoveGroup(group.id)}
+          type="button"
+        >
+          <Trash2Icon aria-hidden="true" size={16} />
+        </button>
+      </div>
+
+      <div className="output-clip-list">
+        {group.clips.map((clip) => (
+          <OutputClipCard
+            clip={clip}
+            groupId={group.id}
+            included={includedIds.has(clip.id)}
+            key={clip.id}
+            onExclude={onExclude}
+            onInclude={onInclude}
+            onRemoveClip={onRemoveClip}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function OutputClipCard({
+  clip,
+  groupId,
+  included,
+  onExclude,
+  onInclude,
+  onRemoveClip
+}: {
+  clip: OutputClip;
+  groupId: string;
+  included: boolean;
+  onExclude: (clipId: string) => void;
+  onInclude: (clip: OutputClip) => void;
+  onRemoveClip: (groupId: string, clipId: string) => void;
+}) {
+  return (
+    <article className="output-clip-card">
+      <div className="output-clip-media">
+        {clip.thumbnailUrl ? (
+          <img alt="" src={clip.thumbnailUrl} />
+        ) : (
+          <span>No thumbnail</span>
+        )}
+      </div>
+      <div className="output-clip-detail">
+        <div className="output-clip-heading">
+          <h4>{clip.title}</h4>
+          <span>{formatScore(clip.score)}</span>
+        </div>
+        <p className="output-clip-time">
+          {formatTimeRange(clip.startMs, clip.endMs)}
+        </p>
+        {clip.snippet.trim() ? (
+          <p className="output-clip-snippet">{clip.snippet}</p>
+        ) : null}
+        <div className="output-clip-actions">
+          <button
+            className={included ? "output-action included" : "output-action"}
+            onClick={() => {
+              if (included) {
+                onExclude(clip.id);
+                return;
+              }
+
+              onInclude(clip);
+            }}
+            type="button"
+          >
+            {included ? (
+              <MinusIcon aria-hidden="true" size={15} />
+            ) : (
+              <PlusIcon aria-hidden="true" size={15} />
+            )}
+            {included ? "Exclude" : "Include"}
+          </button>
+          <button
+            aria-label={`Remove ${clip.title} from output workspace`}
+            className="icon-button"
+            onClick={() => onRemoveClip(groupId, clip.id)}
+            type="button"
+          >
+            <Trash2Icon aria-hidden="true" size={16} />
+          </button>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -337,28 +383,29 @@ function SetupError({ status }: { status: DevassetStatus }) {
   );
 }
 
-function useSessionSelectedClips(): [
-  SelectedClip[],
-  Dispatch<SetStateAction<SelectedClip[]>>
+function useSessionOutputWorkspace(): [
+  OutputWorkspaceState,
+  Dispatch<SetStateAction<OutputWorkspaceState>>
 ] {
-  const [selectedClips, setSelectedClips] = useState<SelectedClip[]>(() => {
+  const [workspace, setWorkspace] = useState<OutputWorkspaceState>(() => {
     if (typeof window === "undefined") {
-      return [];
+      return restoreOutputWorkspaceState(null, null);
     }
 
-    return parseSelectedClips(
+    return restoreOutputWorkspaceState(
+      window.sessionStorage.getItem(outputWorkspaceStorageKey),
       window.sessionStorage.getItem(selectedClipsStorageKey)
     );
   });
 
   useEffect(() => {
     window.sessionStorage.setItem(
-      selectedClipsStorageKey,
-      serializeSelectedClips(selectedClips)
+      outputWorkspaceStorageKey,
+      serializeOutputWorkspaceState(workspace)
     );
-  }, [selectedClips]);
+  }, [workspace]);
 
-  return [selectedClips, setSelectedClips];
+  return [workspace, setWorkspace];
 }
 
 function useDevassetStatus(): DevassetStatus {
@@ -402,4 +449,8 @@ function useDevassetStatus(): DevassetStatus {
   }, []);
 
   return status;
+}
+
+function pluralize(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }

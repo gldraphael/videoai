@@ -7,6 +7,8 @@ import type {
 
 export const DEFAULT_CHAT_LIMIT = 8;
 export const selectedClipsStorageKey = "videoai:selected-clips:v1";
+export const outputWorkspaceStorageKey = "videoai:output-workspace:v1";
+export const outputWorkspaceSessionVersion = 1;
 
 export type DevassetStatus = {
   state: "missing" | "running" | "ready" | "error";
@@ -67,6 +69,36 @@ export type SelectedClip = Pick<
   score: number;
 };
 
+export type OutputClip = Pick<
+  ClipCandidate,
+  | "id"
+  | "assetId"
+  | "title"
+  | "startMs"
+  | "endMs"
+  | "snippet"
+  | "thumbnailPath"
+  | "previewPath"
+  | "thumbnailUrl"
+  | "previewUrl"
+  | "score"
+>;
+
+export type IncludedClip = OutputClip;
+
+export type OutputResultGroup = {
+  id: string;
+  query: string;
+  createdAt: string;
+  clips: OutputClip[];
+};
+
+export type OutputWorkspaceState = {
+  version: typeof outputWorkspaceSessionVersion;
+  groups: OutputResultGroup[];
+  includedClips: IncludedClip[];
+};
+
 export type ChatNotice =
   | {
       type: "devassets";
@@ -88,6 +120,7 @@ type ChatFetch = (
 type CreateClipChatAdapterOptions = {
   fetchImpl?: ChatFetch;
   limit?: number;
+  onOutputGroup?: (group: OutputResultGroup) => void;
   onNotice?: (notice: ChatNotice | null) => void;
 };
 
@@ -121,8 +154,11 @@ export function isPromptSubmittable(value: string): boolean {
 export function createClipChatAdapter({
   fetchImpl = fetch,
   limit = DEFAULT_CHAT_LIMIT,
+  onOutputGroup,
   onNotice
 }: CreateClipChatAdapterOptions = {}): ChatModelAdapter {
+  let outputSequence = 0;
+
   return {
     async run(options): Promise<ChatModelRunResult> {
       const message = extractLatestUserText(options.messages);
@@ -142,6 +178,14 @@ export function createClipChatAdapter({
           limit,
           options.abortSignal
         );
+        for (const candidates of clipCandidateOutputsFromResponse(response)) {
+          outputSequence += 1;
+          onOutputGroup?.(
+            createOutputResultGroup(candidates, {
+              sequence: outputSequence
+            })
+          );
+        }
         onNotice?.(null);
         return completeAssistantMessage(chatResponseToAssistantContent(response));
       } catch (error) {
@@ -155,8 +199,7 @@ export function createClipChatAdapter({
             {
               type: "text",
               text: `${error.devassets.state}: ${error.message}`
-            },
-            emptyClipCandidatesData(message.trim())
+            }
           ]);
         }
 
@@ -172,8 +215,7 @@ export function createClipChatAdapter({
           {
             type: "text",
             text: `I could not search local clips: ${messageText}`
-          },
-          emptyClipCandidatesData(message.trim())
+          }
         ]);
       }
     }
@@ -229,23 +271,26 @@ export async function requestClipChat(
 export function chatResponseToAssistantContent(
   response: ChatApiResponse
 ): ThreadAssistantMessagePart[] {
-  return response.content.map((part) => {
-    if (part.type === "text") {
-      return {
-        type: "text",
-        text: part.text
-      };
-    }
+  return response.content
+    .filter((part) => part.type === "text")
+    .map((part) => ({
+      type: "text",
+      text: part.text
+    }));
+}
 
-    return {
-      type: "data",
-      name: "clip-candidates",
-      data: {
-        query: part.query,
-        candidates: part.candidates
-      }
-    };
-  });
+export function clipCandidateOutputsFromResponse(
+  response: ChatApiResponse
+): ClipCandidatesData[] {
+  return response.content
+    .filter(
+      (part): part is Extract<ChatApiPart, { type: "clip-candidates" }> =>
+        part.type === "clip-candidates" && part.candidates.length > 0
+    )
+    .map((part) => ({
+      query: part.query,
+      candidates: part.candidates
+    }));
 }
 
 export function extractLatestUserText(
@@ -276,6 +321,142 @@ export function selectedClipFromCandidate(candidate: ClipCandidate): SelectedCli
     previewUrl: candidate.previewUrl,
     score: candidate.score
   };
+}
+
+export function outputClipFromCandidate(candidate: ClipCandidate): OutputClip {
+  return {
+    id: candidate.id,
+    assetId: candidate.assetId,
+    title: candidate.title,
+    startMs: candidate.startMs,
+    endMs: candidate.endMs,
+    snippet: candidate.snippet,
+    thumbnailPath: candidate.thumbnailPath,
+    previewPath: candidate.previewPath,
+    thumbnailUrl: candidate.thumbnailUrl,
+    previewUrl: candidate.previewUrl,
+    score: candidate.score
+  };
+}
+
+export function includedClipFromSelectedClip(clip: SelectedClip): IncludedClip {
+  return {
+    ...clip,
+    snippet: ""
+  };
+}
+
+export function emptyOutputWorkspaceState(): OutputWorkspaceState {
+  return {
+    version: outputWorkspaceSessionVersion,
+    groups: [],
+    includedClips: []
+  };
+}
+
+export function createOutputResultGroup(
+  data: ClipCandidatesData,
+  options: {
+    sequence?: number;
+    createdAt?: string;
+  } = {}
+): OutputResultGroup {
+  const sequence = Math.max(1, Math.floor(options.sequence ?? 1));
+  const createdAt = options.createdAt ?? new Date().toISOString();
+  const clips = dedupeByClipId(data.candidates.map(outputClipFromCandidate));
+
+  return {
+    id: `clip-results:${sequence}:${hashString(
+      `${data.query}:${clips.map((clip) => clip.id).join(",")}`
+    )}`,
+    query: data.query,
+    createdAt,
+    clips
+  };
+}
+
+export function appendOutputResultGroup(
+  state: OutputWorkspaceState,
+  group: OutputResultGroup
+): OutputWorkspaceState {
+  if (group.clips.length === 0) {
+    return state;
+  }
+
+  return {
+    ...state,
+    groups: [...state.groups, group]
+  };
+}
+
+export function includeOutputClip(
+  state: OutputWorkspaceState,
+  clip: OutputClip
+): OutputWorkspaceState {
+  if (state.includedClips.some((included) => included.id === clip.id)) {
+    return {
+      ...state,
+      includedClips: [...state.includedClips]
+    };
+  }
+
+  return {
+    ...state,
+    includedClips: [...state.includedClips, { ...clip }]
+  };
+}
+
+export function excludeOutputClip(
+  state: OutputWorkspaceState,
+  clipId: string
+): OutputWorkspaceState {
+  return {
+    ...state,
+    includedClips: state.includedClips.filter((clip) => clip.id !== clipId)
+  };
+}
+
+export function removeOutputClip(
+  state: OutputWorkspaceState,
+  groupId: string,
+  clipId: string
+): OutputWorkspaceState {
+  const groups = state.groups
+    .map((group) =>
+      group.id === groupId
+        ? {
+            ...group,
+            clips: group.clips.filter((clip) => clip.id !== clipId)
+          }
+        : group
+    )
+    .filter((group) => group.clips.length > 0);
+
+  return reconcileIncludedClipsForRemovedIds(
+    {
+      ...state,
+      groups
+    },
+    new Set([clipId])
+  );
+}
+
+export function removeOutputGroup(
+  state: OutputWorkspaceState,
+  groupId: string
+): OutputWorkspaceState {
+  const removedGroup = state.groups.find((group) => group.id === groupId);
+  const removedClipIds = new Set(
+    removedGroup?.clips.map((clip) => clip.id) ?? []
+  );
+
+  return reconcileIncludedClipsForRemovedIds(
+    {
+      ...state,
+      groups: state.groups.filter((group) => group.id !== groupId)
+    },
+    removedClipIds
+  );
 }
 
 export function selectClip(
@@ -313,6 +494,64 @@ export function parseSelectedClips(value: string | null): SelectedClip[] {
   }
 }
 
+export function parseOutputWorkspaceState(
+  value: string | null
+): OutputWorkspaceState | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!isOutputWorkspaceState(parsed)) {
+      return null;
+    }
+
+    return {
+      version: outputWorkspaceSessionVersion,
+      groups: parsed.groups.map((group) => ({
+        ...group,
+        clips: dedupeByClipId(group.clips)
+      })),
+      includedClips: dedupeByClipId(parsed.includedClips)
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function restoreOutputWorkspaceState(
+  workspaceValue: string | null,
+  selectedClipsValue: string | null
+): OutputWorkspaceState {
+  const workspaceState = parseOutputWorkspaceState(workspaceValue);
+  if (workspaceState) {
+    return workspaceState;
+  }
+
+  const legacySelectedClips =
+    workspaceValue === null ? parseSelectedClips(selectedClipsValue) : [];
+  return {
+    ...emptyOutputWorkspaceState(),
+    includedClips: dedupeByClipId(
+      legacySelectedClips.map(includedClipFromSelectedClip)
+    )
+  };
+}
+
+export function serializeOutputWorkspaceState(
+  state: OutputWorkspaceState
+): string {
+  return JSON.stringify({
+    version: outputWorkspaceSessionVersion,
+    groups: state.groups.map((group) => ({
+      ...group,
+      clips: dedupeByClipId(group.clips)
+    })),
+    includedClips: dedupeByClipId(state.includedClips)
+  });
+}
+
 export function serializeSelectedClips(
   selectedClips: readonly SelectedClip[]
 ): string {
@@ -340,16 +579,6 @@ export function formatScore(score: number): string {
   return Number.isFinite(score) ? score.toFixed(1) : "0.0";
 }
 
-export function clipPreviewUrl(
-  candidate: Pick<ClipCandidate, "previewUrl" | "startMs" | "endMs">
-): string | null {
-  if (!candidate.previewUrl) {
-    return null;
-  }
-
-  return `${candidate.previewUrl}#t=${formatSeconds(candidate.startMs)},${formatSeconds(candidate.endMs)}`;
-}
-
 function completeAssistantMessage(
   content: ThreadAssistantMessagePart[]
 ): ChatModelRunResult {
@@ -358,17 +587,6 @@ function completeAssistantMessage(
     status: {
       type: "complete",
       reason: "stop"
-    }
-  };
-}
-
-function emptyClipCandidatesData(query: string): ThreadAssistantMessagePart {
-  return {
-    type: "data",
-    name: "clip-candidates",
-    data: {
-      query,
-      candidates: []
     }
   };
 }
@@ -431,12 +649,98 @@ function isSelectedClip(value: unknown): value is SelectedClip {
   );
 }
 
+function isOutputWorkspaceState(value: unknown): value is OutputWorkspaceState {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return (
+    value.version === outputWorkspaceSessionVersion &&
+    Array.isArray(value.groups) &&
+    value.groups.every(isOutputResultGroup) &&
+    Array.isArray(value.includedClips) &&
+    value.includedClips.every(isOutputClip)
+  );
+}
+
+function isOutputResultGroup(value: unknown): value is OutputResultGroup {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === "string" &&
+    typeof value.query === "string" &&
+    typeof value.createdAt === "string" &&
+    Array.isArray(value.clips) &&
+    value.clips.every(isOutputClip)
+  );
+}
+
+function isOutputClip(value: unknown): value is OutputClip {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.id === "string" &&
+    typeof value.assetId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.startMs === "number" &&
+    typeof value.endMs === "number" &&
+    typeof value.snippet === "string" &&
+    typeof value.thumbnailPath === "string" &&
+    typeof value.previewPath === "string" &&
+    (typeof value.thumbnailUrl === "string" || value.thumbnailUrl === null) &&
+    (typeof value.previewUrl === "string" || value.previewUrl === null) &&
+    typeof value.score === "number"
+  );
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function formatSeconds(ms: number): string {
-  return (Math.max(0, ms) / 1000).toFixed(3).replace(/\.?0+$/, "");
+function dedupeByClipId<T extends { id: string }>(clips: readonly T[]): T[] {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+
+  for (const clip of clips) {
+    if (seen.has(clip.id)) {
+      continue;
+    }
+
+    seen.add(clip.id);
+    deduped.push(clip);
+  }
+
+  return deduped;
+}
+
+function reconcileIncludedClipsForRemovedIds(
+  state: OutputWorkspaceState,
+  removedClipIds: ReadonlySet<string>
+): OutputWorkspaceState {
+  const visibleClipIds = new Set(
+    state.groups.flatMap((group) => group.clips.map((clip) => clip.id))
+  );
+
+  return {
+    ...state,
+    includedClips: state.includedClips.filter(
+      (clip) => !removedClipIds.has(clip.id) || visibleClipIds.has(clip.id)
+    )
+  };
+}
+
+function hashString(value: string): string {
+  let hash = 0;
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (Math.imul(31, hash) + value.charCodeAt(index)) | 0;
+  }
+
+  return Math.abs(hash).toString(36);
 }
 
 function pad2(value: number): string {
